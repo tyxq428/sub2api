@@ -15,6 +15,10 @@ import sys
 import tempfile
 
 REQUIRED = frozenset({
+    "TestR1OpenAIAccountTestDirectAPIKeyPathsBrokenBindingDoNotDispatch",
+    "TestR1RequiredProxyAttemptBoundary",
+    "TestR1CodexPATWhoamiDoesNotFollowRedirect",
+    "TestR1APIKeyResponsesProbeBrokenBindingDoesNotDispatch",
     "TestR1AgentTaskRegistrationPreservesBindingAndRedirectBoundary",
     "TestR1OAuthTokenClientRefusesRedirects",
     "TestR1OAuthTokenRedirectPolicyKeepsNormalSuccess",

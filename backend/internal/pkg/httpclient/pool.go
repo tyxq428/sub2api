@@ -41,6 +41,7 @@ const (
 
 // Options 定义共享 HTTP 客户端的构建参数
 type Options struct {
+	DisableRedirects      bool          // Credential-bearing callers can reject all redirects without mutating cached clients.
 	ProxyURL              string        // 代理 URL（支持 http/https/socks5/socks5h）
 	Timeout               time.Duration // 请求总超时时间
 	ResponseHeaderTimeout time.Duration // 等待响应头超时时间
@@ -94,10 +95,14 @@ func buildClient(opts Options) (*http.Client, error) {
 		rt = newValidatedTransport(transport)
 	}
 	rt = servertiming.WrapRoundTripper(rt)
-	return &http.Client{
+	client := &http.Client{
 		Transport: rt,
 		Timeout:   opts.Timeout,
-	}, nil
+	}
+	if opts.DisableRedirects {
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
+	return client, nil
 }
 
 func buildTransport(opts Options) (*http.Transport, error) {
@@ -144,7 +149,7 @@ func buildTransport(opts Options) (*http.Transport, error) {
 }
 
 func buildClientKey(opts Options) string {
-	return fmt.Sprintf("%s|%s|%s|%t|%t|%t|%d|%d|%d",
+	return fmt.Sprintf("%s|%s|%s|%t|%t|%t|%d|%d|%d|%t",
 		strings.TrimSpace(opts.ProxyURL),
 		opts.Timeout.String(),
 		opts.ResponseHeaderTimeout.String(),
@@ -154,6 +159,7 @@ func buildClientKey(opts Options) string {
 		opts.MaxIdleConns,
 		opts.MaxIdleConnsPerHost,
 		opts.MaxConnsPerHost,
+		opts.DisableRedirects,
 	)
 }
 

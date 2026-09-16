@@ -1875,6 +1875,7 @@ func (s *OpenAIGatewayService) fetchOpenAIModelsUpstream(ctx context.Context, re
 		}
 		if !handled {
 			client, clientErr := httpclient.GetClient(httpclient.Options{
+				DisableRedirects:      true,
 				ProxyURL:              request.proxyURL,
 				Timeout:               codexModelsManifestRequestTimeout,
 				ResponseHeaderTimeout: 10 * time.Second,

@@ -84,6 +84,10 @@ func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 		ProxyURL:     proxyURL,
 		CreatedAt:    time.Now(),
 	}
+	if proxyID != nil {
+		boundID := *proxyID
+		session.ProxyID = &boundID
+	}
 	s.sessionStore.Set(sessionID, session)
 
 	// Build authorization URL
@@ -137,13 +141,21 @@ func (s *OpenAIOAuthService) ExchangeCode(ctx context.Context, input *OpenAIExch
 		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_INVALID_STATE", "invalid oauth state")
 	}
 
-	// Keep the authorization-time URL snapshot unless an explicit binding is
-	// supplied. A broken override must not fall back to the old session route.
+	// An explicit override is authoritative. Otherwise revalidate the saved
+	// binding; a revoked or changed route must not reuse a stale URL.
 	var proxyURL string
 	var proxyErr error
 	if input.ProxyID != nil {
 		proxyURL, proxyErr = resolveOpenAIProxyIDURL(ctx, input.ProxyID, s.proxyRepo)
+	} else if session.ProxyID != nil {
+		// Retain the authorization route, but require that its binding still
+		// exists and still points to the same route before exchanging a code.
+		proxyURL, proxyErr = resolveOpenAIProxyIDURL(ctx, session.ProxyID, s.proxyRepo)
+		if proxyErr == nil && proxyURL != session.ProxyURL {
+			proxyErr = infraerrors.New(http.StatusBadGateway, "OPENAI_PROXY_BINDING_CHANGED", "OAuth proxy binding changed; start a new authorization flow")
+		}
 	} else {
+		// Legacy/unbound sessions retain their explicit URL snapshot semantics.
 		proxyURL, proxyErr = validateOpenAIProxyURL(session.ProxyURL)
 	}
 	if proxyErr != nil {

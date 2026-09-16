@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -204,12 +205,10 @@ func (h *OpenAIOAuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	var proxyURL string
-	if req.ProxyID != nil {
-		proxy, err := h.adminService.GetProxy(c.Request.Context(), *req.ProxyID)
-		if err == nil && proxy != nil {
-			proxyURL = proxy.URL()
-		}
+	proxyURL, proxyErr := h.resolveRequestedOpenAIProxy(c.Request.Context(), req.ProxyID)
+	if proxyErr != nil {
+		response.ErrorFrom(c, proxyErr)
+		return
 	}
 
 	// 未指定 client_id 时，根据请求路径平台自动设置默认值，避免 repository 层盲猜
@@ -387,16 +386,10 @@ func (h *OpenAIOAuthHandler) CreateAccountFromCodexPAT(c *gin.Context) {
 		return
 	}
 
-	var proxyURL string
-	if req.ProxyID != nil {
-		proxy, err := h.adminService.GetProxy(c.Request.Context(), *req.ProxyID)
-		if err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
-		if proxy != nil {
-			proxyURL = proxy.URL()
-		}
+	proxyURL, proxyErr := h.resolveRequestedOpenAIProxy(c.Request.Context(), req.ProxyID)
+	if proxyErr != nil {
+		response.ErrorFrom(c, proxyErr)
+		return
 	}
 
 	tokenInfo, err := h.openaiOAuthService.ValidateCodexPersonalAccessToken(c.Request.Context(), req.AccessToken, proxyURL)
@@ -612,4 +605,20 @@ func (h *OpenAIOAuthHandler) ResetQuota(c *gin.Context) {
 		resetResponse.Account = dto.AccountFromService(postResult.Account)
 	}
 	response.Success(c, resetResponse)
+}
+
+// resolveRequestedOpenAIProxy keeps a requested binding intact across the
+// handler/service boundary and never returns raw repository error details.
+func (h *OpenAIOAuthHandler) resolveRequestedOpenAIProxy(ctx context.Context, id *int64) (string, error) {
+	if id == nil {
+		return "", nil
+	}
+	if h.adminService == nil {
+		return "", infraerrors.New(http.StatusBadGateway, "OPENAI_PROXY_UNAVAILABLE", "configured OpenAI proxy binding is unavailable")
+	}
+	proxy, err := h.adminService.GetProxy(ctx, *id)
+	if err != nil {
+		return "", infraerrors.New(http.StatusBadGateway, "OPENAI_PROXY_UNAVAILABLE", "configured OpenAI proxy binding is unavailable")
+	}
+	return service.ResolveOpenAIProxyBinding(ctx, id, proxy)
 }

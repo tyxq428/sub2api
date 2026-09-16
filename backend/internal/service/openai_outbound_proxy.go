@@ -98,3 +98,10 @@ func openAIProxyBindingHash(account *Account) [32]byte {
 	} // rejected before pool reuse or dial
 	return sha256.Sum256([]byte(route))
 }
+
+// ResolveOpenAIProxyBinding validates an already looked-up proxy for handler
+// boundaries. Repository errors must be handled before calling this function.
+// The same binding validation is used by service and handler paths.
+func ResolveOpenAIProxyBinding(ctx context.Context, id *int64, proxy *Proxy) (string, error) {
+	return resolveOpenAIAccountProxyURL(ctx, &Account{ProxyID: id, Proxy: proxy}, nil)
+}

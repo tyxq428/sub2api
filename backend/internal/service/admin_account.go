@@ -1652,7 +1652,7 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 		return ""
 	}
 
-	proxyURL, proxyErr := resolveOpenAIProxyIDURL(ctx, account.ProxyID, s.proxyRepo)
+	proxyURL, proxyErr := resolveOpenAIAccountProxyURLFresh(ctx, account, s.proxyRepo)
 	mode := PrivacyModeFailed
 	if proxyErr == nil {
 		mode = disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
@@ -1684,7 +1684,7 @@ func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, account *Acco
 		return ""
 	}
 
-	proxyURL, proxyErr := resolveOpenAIProxyIDURL(ctx, account.ProxyID, s.proxyRepo)
+	proxyURL, proxyErr := resolveOpenAIAccountProxyURLFresh(ctx, account, s.proxyRepo)
 	mode := PrivacyModeFailed
 	if proxyErr == nil {
 		mode = disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)

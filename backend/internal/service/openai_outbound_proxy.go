@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"net/http"
 	"strings"
+	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
@@ -14,7 +15,8 @@ import (
 // An unbound account retains the caller's existing default-route policy; a
 // broken binding must never be converted into an empty/default proxy URL.
 // The caller must resolve shadow credentials first and call this before token
-// acquisition. It does not mutate account state or apply expiry/fallback policy.
+// acquisition. It does not mutate account state. Legacy expiry/fallback policies
+// are unchanged; the opt-in required-proxy policy rejects expired/fallback routes.
 // Coverage is tracked per entry point in docs/codex-gap; this is not a global network sandbox.
 func resolveOpenAIAccountProxyURL(ctx context.Context, account *Account, repo ProxyRepository) (string, error) {
 	unavailable := func() error {
@@ -27,8 +29,18 @@ func resolveOpenAIAccountProxyURL(ctx context.Context, account *Account, repo Pr
 	if account == nil {
 		return "", unavailable()
 	}
+	required, policyErr := openAIProxyRequired(account)
+	if policyErr != nil {
+		return "", policyErr
+	}
 	if account.ProxyID == nil {
+		if required {
+			return "", infraerrors.New(http.StatusBadGateway, "OPENAI_PROXY_REQUIRED", "this account requires an explicit proxy binding")
+		}
 		return "", nil
+	}
+	if required && account.ProxyFallbackOriginID != nil {
+		return "", infraerrors.New(http.StatusBadGateway, "OPENAI_PROXY_FALLBACK_FORBIDDEN", "automatic proxy fallback is not allowed for this account")
 	}
 	id := *account.ProxyID
 	if id <= 0 {
@@ -50,6 +62,9 @@ func resolveOpenAIAccountProxyURL(ctx context.Context, account *Account, repo Pr
 	}
 	// Work from a value copy; resolving a route must not rewrite ORM objects.
 	route := *proxy
+	if required && (!route.IsActive() || route.IsExpired(time.Now())) {
+		return "", infraerrors.New(http.StatusBadGateway, "OPENAI_PROXY_UNAVAILABLE", "required proxy is inactive or expired")
+	}
 	if strings.TrimSpace(route.Host) == "" || route.Port < 1 || route.Port > 65535 {
 		return "", invalid()
 	}
@@ -80,7 +95,14 @@ func validateOpenAIProxyURL(raw string) (string, error) {
 // OpenAI account bindings are authoritative; unbound/other-provider policies
 // remain unchanged. Selected accounts must already carry their hydrated proxy.
 func resolveOpenAIDispatchProxyURL(ctx context.Context, account *Account, candidate string) (string, error) {
-	if account == nil || account.Platform != PlatformOpenAI || account.ProxyID == nil {
+	if account == nil || account.Platform != PlatformOpenAI {
+		return candidate, nil
+	}
+	required, err := openAIProxyRequired(account)
+	if err != nil {
+		return "", err
+	}
+	if account.ProxyID == nil && !required {
 		return candidate, nil
 	}
 	return resolveOpenAIAccountProxyURL(ctx, account, nil)
@@ -128,4 +150,47 @@ func (s *OpenAIGatewayService) resolveOpenAIRequestProxyURL(ctx context.Context,
 		}
 	}
 	return resolveOpenAIAccountProxyURL(ctx, routeAccount, nil)
+}
+
+// openAIProxyRequired is opt-in and lives in the existing Extra JSON object.
+// A malformed present flag is a policy error, never an implicit opt-out.
+// It validates the supplied account snapshot; it is not a real-time DB revoke check.
+func openAIProxyRequired(account *Account) (bool, error) {
+	if account == nil || account.Platform != PlatformOpenAI || account.Extra == nil {
+		return false, nil
+	}
+	raw, exists := account.Extra["openai_proxy_required"]
+	if !exists {
+		return false, nil
+	}
+	required, ok := raw.(bool)
+	if !ok {
+		return false, infraerrors.New(http.StatusBadGateway, "OPENAI_PROXY_POLICY_INVALID", "openai_proxy_required must be a boolean")
+	}
+	return required, nil
+}
+
+// Unverified external plugins must not take over required-route accounts. This
+// rejects the selected route rather than silently bypassing the configured plugin.
+func validateOpenAIPluginProxyPolicy(account *Account) error {
+	required, err := openAIProxyRequired(account)
+	if err != nil {
+		return err
+	}
+	if required {
+		return infraerrors.New(http.StatusBadGateway, "OPENAI_PROXY_PLUGIN_UNVERIFIED", "selected plugin has not been verified for required proxy routing")
+	}
+	return nil
+}
+
+// Administrative operations intentionally reload the proxy record while
+// retaining the account policy and fallback provenance. A synthetic ID-only
+// account would otherwise drop openai_proxy_required during refresh/privacy.
+func resolveOpenAIAccountProxyURLFresh(ctx context.Context, account *Account, repo ProxyRepository) (string, error) {
+	if account == nil {
+		return resolveOpenAIAccountProxyURL(ctx, nil, repo)
+	}
+	copied := *account
+	copied.Proxy = nil
+	return resolveOpenAIAccountProxyURL(ctx, &copied, repo)
 }

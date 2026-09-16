@@ -22,6 +22,11 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 		return nil, proxyErr
 	}
 	if s.pluginManager != nil {
+		if s.pluginManager.ShouldRouteOpenAIOAuth(account) {
+			if err := validateOpenAIPluginProxyPolicy(routeAccount); err != nil {
+				return nil, err
+			}
+		}
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
 			return response, err
@@ -51,6 +56,11 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 		return nil, proxyErr
 	}
 	if s.pluginManager != nil {
+		if s.pluginManager.ShouldRouteOpenAIOAuth(account) {
+			if err := validateOpenAIPluginProxyPolicy(routeAccount); err != nil {
+				return nil, err
+			}
+		}
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
 			return response, err

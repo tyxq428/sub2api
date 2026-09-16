@@ -922,6 +922,9 @@ func (m *PluginManager) RoundTripOpenAIOAuth(ctx context.Context, request *http.
 	if !m.ShouldRouteOpenAIOAuth(account) {
 		return nil, false, nil
 	}
+	if err := validateOpenAIPluginProxyPolicy(account); err != nil {
+		return nil, true, err
+	}
 	route := m.route.Load()
 	if route == nil {
 		return nil, false, nil

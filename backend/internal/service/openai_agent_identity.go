@@ -173,6 +173,10 @@ func decryptAgentTaskID(key agentIdentityKey, encoded string) (string, error) {
 }
 
 func registerAgentIdentityTask(ctx context.Context, account *Account) (string, error) {
+	proxyURL, proxyErr := resolveOpenAIAccountProxyURL(ctx, account, nil)
+	if proxyErr != nil {
+		return "", proxyErr
+	}
 	key, err := agentIdentityKeyFromAccount(account)
 	if err != nil {
 		return "", err
@@ -181,11 +185,8 @@ func registerAgentIdentityTask(ctx context.Context, account *Account) (string, e
 	if err != nil {
 		return "", err
 	}
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
 	client, err := httpclient.GetClient(httpclient.Options{
+		DisableRedirects:      true,
 		ProxyURL:              proxyURL,
 		Timeout:               agentIdentityTaskRegistrationTimeout,
 		ResponseHeaderTimeout: 15 * time.Second,

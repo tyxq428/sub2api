@@ -1456,7 +1456,7 @@ func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *
 		return
 	}
 
-	proxyURL, proxyErr := resolveOpenAIProxyIDURL(ctx, account.ProxyID, s.proxyRepo)
+	proxyURL, proxyErr := resolveOpenAIAccountProxyURLFresh(ctx, account, s.proxyRepo)
 	mode := PrivacyModeFailed
 	if proxyErr == nil {
 		mode = disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)

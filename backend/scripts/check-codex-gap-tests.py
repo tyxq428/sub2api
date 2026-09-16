@@ -15,6 +15,16 @@ import sys
 import tempfile
 
 REQUIRED = frozenset({
+    "TestR1AgentTaskRegistrationPreservesBindingAndRedirectBoundary",
+    "TestR1OAuthTokenClientRefusesRedirects",
+    "TestR1OAuthTokenRedirectPolicyKeepsNormalSuccess",
+    "TestR1RequiredProxyBlocksUnverifiedPlugin",
+    "TestR1RequiredProxyKeepsLegacyAndValidRoutes",
+    "TestR1RequiredProxyRejectsExpiredDisabledAndAutomaticFallback",
+    "TestR1RequiredProxyRejectsLostBinding",
+    "TestR1RequiredProxyRejectsMalformedPolicy",
+    "TestR1RequiredProxySurvivesAdministrativeReload",
+
     "TestParse_ErrorsDoNotExposeCredentials",
     "TestOpenAIQuotaBoundProxyFailsClosed",
     "TestOpenAIQuotaProxyFailurePrecedesTokenLookup",
@@ -78,6 +88,7 @@ def validate_log(path: Path, exit_code: int = 0) -> dict:
     missing = ALL_REQUIRED - (ran & passed)
     expected_packages = {
         "github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl",
+        "github.com/Wei-Shaw/sub2api/internal/repository",
         "github.com/Wei-Shaw/sub2api/internal/service",
     }
     success = (exit_code == 0 and not missing and not failed
@@ -101,7 +112,7 @@ def self_test() -> None:
         events = []
         for name in sorted(ALL_REQUIRED):
             events += [{"Action": "run", "Test": name}, {"Action": "pass", "Test": name}]
-        for package in ["internal/pkg/proxyurl", "internal/service"]:
+        for package in ["internal/pkg/proxyurl", "internal/service", "internal/repository"]:
             events.append({"Action": "pass", "Package": "github.com/Wei-Shaw/sub2api/" + package})
         def save(data): path.write_text("\n".join(json.dumps(e) for e in data), encoding="utf-8")
         save(events)
@@ -136,7 +147,7 @@ def main() -> int:
         pattern = "^(TestParse_.*|" + "|".join(sorted(ALL_REQUIRED)) + ")$"
         command = [args.go, "test", "-p=4", "-mod=readonly", "-count=1", "-tags=unit",
                    "-json", "-timeout=180s", "-run", pattern,
-                   "./internal/pkg/proxyurl", "./internal/service"]
+                   "./internal/pkg/proxyurl", "./internal/service", "./internal/repository"]
         print("Running bounded offline contract suite; log=" + str(path), flush=True)
         with path.open("w", encoding="utf-8") as output:
             try:

@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -64,6 +65,17 @@ func (u *httpBridgeIsolationUpstream) Do(req *http.Request, _ string, _ int64, _
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		return nil, err
+	}
+	if req.Header.Get("Content-Encoding") == "zstd" {
+		decoder, err := zstd.NewReader(nil)
+		if err != nil {
+			return nil, err
+		}
+		body, err = decoder.DecodeAll(body, nil)
+		decoder.Close()
+		if err != nil {
+			return nil, err
+		}
 	}
 	_ = req.Body.Close()
 	input := gjson.GetBytes(body, "input")

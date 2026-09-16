@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "sub2api": {
+    "tag": "v0.2.5",
+    "commit": "86f93c28ee34cc74b629dafb748bd5ac5ca8c5ea"
+  },
+  "codex": {
+    "tag": "rust-v0.154.0",
+    "tag_object": "36eab01061df3cde5f95ec20a526777b430091ba",
+    "commit": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+    "signature_verified": false,
+    "reference_surface": "exec"
+  },
+  "evidence_policy": {
+    "source_is_not_packet_capture": true,
+    "historical_runtime_not_replayed_this_batch": true,
+    "risk_score_or_ban_reduction_measured": false
+  },
+  "scope": "Local quota binding and parser error hygiene; no runtime identity, transport, or production changes",
+  "review_paths": [
+    "codex-rs/login/src/auth/default_client.rs",
+    "codex-rs/exec/src/lib.rs",
+    "codex-rs/core/src/client.rs",
+    "codex-rs/core/src/responses_metadata.rs",
+    "codex-rs/codex-api/src/requests/headers.rs"
+  ],
+  "ci_drift_gate_implemented": false
+}

@@ -15,6 +15,14 @@ import sys
 import tempfile
 
 REQUIRED = frozenset({
+    "TestOpenAIWSConnPool_BackgroundPingSweepToleratesSlowPong",
+    "TestOpenAIWSConnReaderLoop_RealConnAnswersServerPingWhileIdle",
+    "TestBuildUpstreamTransport_LongStreamH2_NegotiatesHTTP2",
+    "TestEnableHTTP2KeepAlive_EnablesPingHealthCheck",
+    "TestR1B7ResponsesCompressionDoesNotExpandToUnverifiedSubpaths",
+    "TestR1B7ResponsesCompressionScopeExcludesDirectAPIKeyAndOtherProviders",
+    "TestR1B7ReconstructedResponsesCompressesCodexBackend",
+    "TestR1B7PassthroughResponsesCompressesCodexBackendAndPreservesBodyBytes",
     "TestOpenAICapacityFailoverCarriesSafeTerminalResponse",
     "TestOpenAIResponsesEmptyCompletedFailsOver",
     "TestForwardAsRawChatCompletions_SilentRefusalTriggersFailover",

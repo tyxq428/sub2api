@@ -742,6 +742,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
+	if err := applyOpenAIResponsesRequestCompression(c, account, req, body); err != nil {
+		return nil, fmt.Errorf("compress openai responses request: %w", err)
+	}
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http_passthrough", req.Header, body, "not_applicable")
 
 	return req, nil

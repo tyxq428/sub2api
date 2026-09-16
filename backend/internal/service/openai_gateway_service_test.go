@@ -2150,6 +2150,7 @@ func TestOpenAIStreamingPreambleOnlyMissingTerminalReturnsFailover(t *testing.T)
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
+	require.False(t, failoverErr.ShouldRetryNextAccount(), "missing terminal follows an accepted HTTP response and is replay-unsafe")
 	require.False(t, c.Writer.Written())
 	require.Empty(t, rec.Body.String())
 }

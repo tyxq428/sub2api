@@ -275,6 +275,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			logger.LegacyPrintf("service.openai_gateway", "%s: account=%d model=%s error=%v", message, account.ID, originalModel, err)
 			failoverErr := s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, message)
 			failoverErr.SafeToFailoverAfterWrite = true
+			failoverErr.RequestMayHaveBeenSent = true
 			streamEarlyErr = failoverErr
 			_ = resp.Body.Close()
 			return
@@ -388,14 +389,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			s.clearOpenAIProxyStreamDisconnect(account)
 		}
 		if !sawTerminalEvent && !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
-			return resultWithUsage(), s.newOpenAIStreamFailoverError(
+			return resultWithUsage(), markOpenAIAttemptMaybeSent(s.newOpenAIStreamFailoverError(
 				c,
 				account,
 				false,
 				upstreamRequestID,
 				nil,
 				"OpenAI stream ended before a terminal event",
-			)
+			))
 		}
 		flushPending("Client disconnected during final flush, returning collected usage")
 		if !sawTerminalEvent {
@@ -421,6 +422,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				"OpenAI SSE line exceeds guarded first-output limit",
 			)
 			failoverErr.SafeToFailoverAfterWrite = true
+			failoverErr.RequestMayHaveBeenSent = true
 			return resultWithUsage(), failoverErr, true
 		}
 		if errors.Is(scanErr, bufio.ErrTooLong) && stageFirstOutput && !firstOutputProgressObserved {
@@ -430,6 +432,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				"OpenAI SSE line exceeds guarded first-output limit",
 			)
 			failoverErr.SafeToFailoverAfterWrite = true
+			failoverErr.RequestMayHaveBeenSent = true
 			return resultWithUsage(), failoverErr, true
 		}
 		if sawTerminalEvent {
@@ -458,7 +461,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if errText := strings.TrimSpace(scanErr.Error()); errText != "" {
 				msg += ": " + errText
 			}
-			return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, msg), true
+			return resultWithUsage(), markOpenAIAttemptMaybeSent(s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, msg)), true
 		}
 		// 客户端已断开时，上游出错仅影响体验，不影响计费；返回已收集 usage
 		if clientDisconnected {

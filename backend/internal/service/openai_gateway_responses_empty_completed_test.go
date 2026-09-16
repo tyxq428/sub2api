@@ -45,6 +45,7 @@ func TestOpenAIResponsesEmptyCompletedFailsOver(t *testing.T) {
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr), "empty completed must produce UpstreamFailoverError, got: %v", err)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.False(t, failoverErr.ShouldRetryNextAccount(), "empty completed is a completed upstream attempt and must not be replayed")
 	require.Empty(t, recorder.Body.String(), "no empty success stream may reach the client")
 }
 

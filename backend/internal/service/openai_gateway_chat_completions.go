@@ -681,6 +681,9 @@ func (s *OpenAIGatewayService) newOpenAICompatBufferedReadFailoverError(
 		responseHeaders = resp.Header
 	}
 	failoverErr := s.newOpenAIStreamFailoverError(c, account, false, requestID, payload, message, responseHeaders)
+	// An HTTP response already exists: upstream accepted the attempt. A later
+	// body-read failure is replay-unsafe even when the client saw no bytes.
+	failoverErr.RequestMayHaveBeenSent = true
 	// 保留稳定错误码，确保重试耗尽后客户端和错误透传规则仍能识别传输故障。
 	failoverErr.ResponseBody = payload
 	return failoverErr

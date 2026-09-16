@@ -32,7 +32,8 @@ type upstreamTransportErrorClass struct {
 	// pointless: expired or rejected proxy credentials, a dead proxy endpoint,
 	// or DNS/routing failure. Such accounts should be temporarily unscheduled
 	// (and alerted on) instead of being repeatedly scheduled into hard failures.
-	Persistent bool
+	Persistent        bool
+	DefinitelyPreSend bool // connection/request bytes provably never reached the application upstream
 }
 
 // persistentUpstreamTransportErrorMarkers are substrings (matched case-insensitively
@@ -74,19 +75,29 @@ func classifyUpstreamTransportError(err error) upstreamTransportErrorClass {
 	if errors.Is(err, syscall.ECONNREFUSED) ||
 		errors.Is(err, syscall.EHOSTUNREACH) ||
 		errors.Is(err, syscall.ENETUNREACH) {
-		return upstreamTransportErrorClass{Persistent: true}
+		return upstreamTransportErrorClass{Persistent: true, DefinitelyPreSend: true}
 	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
-		return upstreamTransportErrorClass{Persistent: true}
+		return upstreamTransportErrorClass{Persistent: true, DefinitelyPreSend: true}
 	}
 
 	// — String-marker fallback ————————————————————————————————————————————————
 	msg := strings.ToLower(err.Error())
 	for _, marker := range persistentUpstreamTransportErrorMarkers {
 		if strings.Contains(msg, marker) {
-			return upstreamTransportErrorClass{Persistent: true}
+			return upstreamTransportErrorClass{Persistent: true, DefinitelyPreSend: true}
 		}
+	}
+	// Dial failures happen before an HTTP request can reach the application
+	// upstream. Other transport errors (awaiting headers, read reset, EOF,
+	// broken pipe) are intentionally treated as maybe-sent.
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && strings.EqualFold(strings.TrimSpace(opErr.Op), "dial") {
+		return upstreamTransportErrorClass{DefinitelyPreSend: true}
+	}
+	if strings.Contains(msg, "dial tcp") || strings.Contains(msg, "dial udp") || strings.Contains(msg, "socks connect") || strings.Contains(msg, "proxyconnect") {
+		return upstreamTransportErrorClass{DefinitelyPreSend: true}
 	}
 	return upstreamTransportErrorClass{}
 }
@@ -137,13 +148,15 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 		return err
 	}
 
-	if classifyUpstreamTransportError(err).Persistent {
+	transportClass := classifyUpstreamTransportError(err)
+	if transportClass.Persistent {
 		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
 	}
 
 	return &UpstreamFailoverError{
-		StatusCode:   http.StatusBadGateway,
-		ResponseBody: openAITransportFailoverBody,
+		StatusCode:             http.StatusBadGateway,
+		ResponseBody:           openAITransportFailoverBody,
+		RequestMayHaveBeenSent: !transportClass.DefinitelyPreSend,
 	}
 }
 

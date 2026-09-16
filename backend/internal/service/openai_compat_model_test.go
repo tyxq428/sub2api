@@ -2057,6 +2057,7 @@ func TestForwardAsAnthropic_MissingTerminalBeforeOutputReturnsFailoverAndOps(t *
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr), "missing terminal before output must use failover path")
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.False(t, failoverErr.ShouldRetryNextAccount(), "messages missing-terminal follows an accepted HTTP response and is replay-unsafe")
 	require.Contains(t, string(failoverErr.ResponseBody), "OpenAI messages stream ended before a terminal event")
 	require.NotNil(t, result)
 	require.Zero(t, result.Usage.InputTokens)

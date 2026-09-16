@@ -263,9 +263,10 @@ func newOpenAISilentRefusalFailoverError(c *gin.Context, account *Account, upstr
 		headers.Set("x-request-id", strings.TrimSpace(upstreamRequestID))
 	}
 	return &UpstreamFailoverError{
-		StatusCode:      http.StatusBadGateway,
-		ResponseBody:    openAISilentRefusalErrorBody(),
-		ResponseHeaders: headers,
+		StatusCode:             http.StatusBadGateway,
+		ResponseBody:           openAISilentRefusalErrorBody(),
+		ResponseHeaders:        headers,
+		RequestMayHaveBeenSent: true,
 	}
 }
 
@@ -302,9 +303,10 @@ func newOpenAIResponsesEmptyCompletedFailoverError(c *gin.Context, account *Acco
 		headers.Set("x-request-id", strings.TrimSpace(upstreamRequestID))
 	}
 	return &UpstreamFailoverError{
-		StatusCode:      http.StatusBadGateway,
-		ResponseBody:    openAISilentRefusalErrorBody(),
-		ResponseHeaders: headers,
+		StatusCode:             http.StatusBadGateway,
+		ResponseBody:           openAISilentRefusalErrorBody(),
+		ResponseHeaders:        headers,
+		RequestMayHaveBeenSent: true,
 	}
 }
 

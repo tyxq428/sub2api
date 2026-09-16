@@ -879,7 +879,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				isOpenAIWSTerminalEvent(eventType)
 			if stageBeforeSemanticOutput && !commitStagedMessages {
 				if pendingClientMessageBytes+int64(len(clientMessage)) > openAIFirstOutputStageMaxBytes {
-					return nil, s.newOpenAIStreamFailoverError(
+					return nil, markOpenAIAttemptMaybeSent(s.newOpenAIStreamFailoverError(
 						c,
 						account,
 						true,
@@ -887,7 +887,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 						nil,
 						"OpenAI WS HTTP bridge first-output staging limit exceeded",
 						resp.Header,
-					)
+					))
 				}
 				pendingClientMessages = append(pendingClientMessages, append([]byte(nil), clientMessage...))
 				pendingClientMessageBytes += int64(len(clientMessage))

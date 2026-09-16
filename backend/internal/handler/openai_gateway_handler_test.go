@@ -2641,7 +2641,7 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 	require.Equal(t, []int64{int64(9902)}, accountRepo.rateLimitedIDs)
 }
 
-func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClientForOneFailover(t *testing.T) {
+func TestOpenAIResponsesWebSocket_FirstOutputTimeoutAfterDispatchDoesNotReplayAcrossAccounts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	firstHitCh := make(chan []byte, 1)
@@ -2811,40 +2811,30 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 	cancelWrite()
 	require.NoError(t, err)
 
-	var eventTypes []string
-	readCtx, cancelRead := context.WithTimeout(context.Background(), 6*time.Second)
-	for {
-		_, event, readErr := clientConn.Read(readCtx)
-		require.NoError(t, readErr)
-		eventType := gjson.GetBytes(event, "type").String()
-		eventTypes = append(eventTypes, eventType)
-		if eventType == "response.completed" {
-			require.Equal(t, "resp_ws_timeout_b", gjson.GetBytes(event, "response.id").String())
-			break
-		}
-	}
+	readCtx, cancelRead := context.WithTimeout(context.Background(), 4*time.Second)
+	_, _, readErr := clientConn.Read(readCtx)
 	cancelRead()
-	require.Contains(t, eventTypes, "response.output_text.delta")
-	require.NoError(t, clientConn.Close(coderws.StatusNormalClosure, "done"))
+	require.Error(t, readErr, "first-output timeout after upstream dispatch must terminate instead of replaying the request")
+	require.Equal(t, coderws.StatusTryAgainLater, coderws.CloseStatus(readErr))
 
 	select {
 	case <-handlerDone:
 	case <-time.After(3 * time.Second):
-		t.Fatal("websocket handler did not finish after healthy failover turn")
+		t.Fatal("websocket handler did not finish after replay-unsafe first-output timeout")
 	}
 	select {
 	case <-firstHitCh:
 	case <-time.After(3 * time.Second):
-		t.Fatal("first upstream did not receive replayable request")
+		t.Fatal("first upstream did not receive the original request")
 	}
 	select {
 	case <-secondHitCh:
-	case <-time.After(3 * time.Second):
-		t.Fatal("second upstream did not receive replayed request")
+		t.Fatal("second upstream received a replay even though the first upstream already received the request")
+	case <-time.After(400 * time.Millisecond):
 	}
 	require.Equal(t, int32(1), firstConnections.Load())
-	require.Equal(t, int32(1), secondConnections.Load())
-	require.NotContains(t, accountRepo.rateLimitedIDs, int64(9913), "healthy failover account must not be penalized")
+	require.Equal(t, int32(0), secondConnections.Load())
+	require.NotContains(t, accountRepo.rateLimitedIDs, int64(9913), "unused secondary account must not be penalized")
 }
 
 func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSUsageLogCase) openAIResponsesWSUsageLogResult {

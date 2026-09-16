@@ -491,7 +491,8 @@ func TestForwardAsRawChatCompletions_SilentRefusalTriggersFailover(t *testing.T)
 	require.True(t, errors.As(err, &failoverErr))
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.True(t, IsOpenAISilentRefusalErrorBody(failoverErr.ResponseBody))
-	require.False(t, c.Writer.Written(), "silent refusal must not commit a 200 response before failover")
+	require.False(t, failoverErr.ShouldRetryNextAccount(), "silent refusal was produced after upstream completed; do not silently replay it")
+	require.False(t, c.Writer.Written(), "silent refusal must not commit a false 200 success")
 	require.Empty(t, rec.Body.String())
 }
 
@@ -801,8 +802,8 @@ func TestForwardAsRawChatCompletions_EmptyStreamBeforeOutputTriggersFailover(t *
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.Equal(t, OpenAIUpstreamStreamTruncatedCode,
 		gjson.GetBytes(failoverErr.ResponseBody, "error.code").String())
-	require.True(t, failoverErr.ShouldRetryNextAccount())
-	require.False(t, c.Writer.Written(), "换号重试前不得提交 200 响应头")
+	require.False(t, failoverErr.ShouldRetryNextAccount(), "HTTP 200 proves the upstream accepted the attempt; empty/truncated output is replay-unsafe")
+	require.False(t, c.Writer.Written(), "replay-unsafe failure still must not commit a false 200 success")
 	require.Empty(t, rec.Body.String())
 }
 

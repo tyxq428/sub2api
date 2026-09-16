@@ -15,6 +15,17 @@ import sys
 import tempfile
 
 REQUIRED = frozenset({
+    "TestOpenAICapacityFailoverCarriesSafeTerminalResponse",
+    "TestOpenAIResponsesEmptyCompletedFailsOver",
+    "TestForwardAsRawChatCompletions_SilentRefusalTriggersFailover",
+    "TestOpenAIStreamingPreambleOnlyMissingTerminalReturnsFailover",
+    "TestForwardAsAnthropic_MissingTerminalBeforeOutputReturnsFailoverAndOps",
+    "TestForwardAsRawChatCompletions_EmptyStreamBeforeOutputTriggersFailover",
+    "TestOpenAIResponsesWebSocket_FirstOutputTimeoutAfterDispatchDoesNotReplayAcrossAccounts",
+    "TestR1B6ExplicitBusinessFailoverKeepsExistingNextAccountPolicy",
+    "TestR1B6FirstOutputTimeoutDoesNotReplayAcrossAccounts",
+    "TestR1B6HTTPResponseBodyReadFailureDoesNotReplayAcrossAccounts",
+    "TestR1B6TransportFailoverRequiresProvablyPreSendFailure",
     "TestR1B5HandlerPreservesHyphenatedSessionAliasesToFakeUpstream",
     "TestR1B5DefaultLinuxFallbackMatchesLockedReferenceEnvironment",
     "TestR1B5PassthroughPreservesConfiguredOfficialClientSurface",

@@ -693,7 +693,8 @@ type UpstreamFailoverError struct {
 	SameAccountRetryDeadline time.Time     // 同账号重试截止时间；零值表示仅受 retryLimit 限制
 	SameAccountRetryMax      int           // 可选的错误级同账号重试上限，低于 handler 默认预算时优先采用
 	RequestScopedTransient   bool          // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
-	SafeToFailoverAfterWrite bool          // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
+	SafeToFailoverAfterWrite bool          // 仅描述下游写边界；不表示上游重放安全
+	RequestMayHaveBeenSent   bool          // 请求可能已到达/执行于上游：不得同账号或跨账号静默重放
 	Stage                    GatewayFailureStage
 	Scope                    GatewayFailureScope
 	Reason                   GatewayFailureReason
@@ -710,7 +711,17 @@ func (e *UpstreamFailoverError) Error() string {
 }
 
 func (e *UpstreamFailoverError) ShouldRetryNextAccount() bool {
-	return e != nil && e.NextAccountAction != NextAccountStop
+	return e != nil && !e.RequestMayHaveBeenSent && e.NextAccountAction != NextAccountStop
+}
+
+// markOpenAIAttemptMaybeSent keeps the existing failover error payload/health
+// semantics while preventing a new attempt from replaying a request that an
+// upstream response or stream proves may already have executed.
+func markOpenAIAttemptMaybeSent(err *UpstreamFailoverError) *UpstreamFailoverError {
+	if err != nil {
+		err.RequestMayHaveBeenSent = true
+	}
+	return err
 }
 
 func (e *UpstreamFailoverError) IsCredentialFailure() bool {

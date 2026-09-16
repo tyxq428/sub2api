@@ -19,7 +19,7 @@ from typing import Any
 SOURCE = '8905cbb82d4bad011eddae5e83228f52906c4b40'
 BASELINE = 'local/sub2api-r1-baseline@sha256:8af502b156cecdbb6f9469d604776c540ae501995094f9d8a50bb08f4bd42611'
 CANDIDATE = 'local/sub2api-r1@sha256:ed414eb7c1896506c1a7ab009ff3cfdca3857a9de366776e746be95b1f555a85'
-HARNESS = {'run.py': '5b9b7dbbffdb7e5d00054e9a6328ff11430e07c01db37b5c1fe96e0028379b6d', 'load_agent.cjs': '61b5a329378d52257e7782641afe30ea67896d2994379318d68e5b0a35fe9596', 'fake_upstream.cjs': 'def9877ec3018eb89695f6ffb0eededd83ef9f227fcde4327b24f289cb758cf7'}
+HARNESS = {'run.py': 'd5b3baf318cea8596137797aaf5721ed49d0973fc70cf0dd0c2b17712b085f60', 'load_agent.cjs': '61b5a329378d52257e7782641afe30ea67896d2994379318d68e5b0a35fe9596', 'fake_upstream.cjs': 'cff43063aeea46844f473c4960d94ef239feb4da7a7db932b2a2c3b233f67980', 'duplicate_tracker.cjs': '30511bdb5531a1be2e7176122df0b4c35e34c85f2525c14edef250d9178fc839'}
 SECONDS, WARMUP, RPS = 7200, 300, 20
 
 class VerificationError(ValueError):
@@ -54,9 +54,9 @@ def verify_soak(result: dict, memory: list, series: dict, environment: dict) -> 
     require(result.get('real_model_requests') == 0, 'real model traffic is forbidden')
     require(result.get('actual_elapsed_s', 0) >= WARMUP + SECONDS - 1, 'measurement duration incomplete')
     require(result.get('passed') is True and not result.get('error'), 'load controller did not pass')
-    expected_gates = {'zero_errors','no_upstream_duplicates','valid_upstream_inputs','upstream_count_exact','duration_complete','sample_count_complete','p95_within_10pct','stable_rss_within_20pct'}
+    expected_gates = {'zero_errors','no_upstream_duplicates','valid_upstream_inputs','upstream_count_exact','duration_complete','sample_count_complete','p95_within_10pct','stable_rss_within_20pct','fake_tracker_bounded'}
     require(all(result.get('gates', {}).get(k) is True for k in expected_gates), 'controller gate absent or failed')
-    require(environment.get('controller_sha256') == HARNESS['run.py'] and environment.get('agent_sha256') == HARNESS['load_agent.cjs'] and environment.get('fixture_sha256') == HARNESS['fake_upstream.cjs'], 'harness identity mismatch')
+    require(environment.get('controller_sha256') == HARNESS['run.py'] and environment.get('agent_sha256') == HARNESS['load_agent.cjs'] and environment.get('fixture_sha256') == HARNESS['fake_upstream.cjs'] and environment.get('tracker_sha256') == HARNESS['duplicate_tracker.cjs'], 'harness identity mismatch')
     require(bool(memory) and memory[0]['elapsed_s'] < 60 and memory[-1]['elapsed_s'] >= WARMUP + SECONDS - 31, 'memory observation window incomplete')
     require(all(0 <= b['elapsed_s'] - a['elapsed_s'] <= 65 for a,b in zip(memory, memory[1:])), 'memory sampling has an excessive gap')
     computed = {}
@@ -86,9 +86,11 @@ def verify_soak(result: dict, memory: list, series: dict, environment: dict) -> 
         computed[variant]['stable_rss_samples'] = len(stable)
     upstream = result['upstream']
     require(upstream['invalid'] == upstream['duplicates'] == 0, 'invalid or duplicated upstream request')
+    require(upstream.get('tracker', {}).get('bytes', 2**31) < 2*1024*1024, 'fake duplicate tracker memory is unbounded')
+    require(upstream.get('memory', {}).get('heapUsed', 2**31) < 128*1024*1024, 'fake V8 heap exceeds bounded-harness gate')
     require(upstream['requests'] == sum(v['requests'] for v in result['variants'].values()) + 20, 'upstream/client request counts differ')
     run_id = result['run_id']
-    require(run_id == 'sub2api-r1-b8-soak01', 'unrecognized run identity')
+    require(run_id == 'sub2api-r1-b8-soak03', 'unrecognized run identity')
     expected_names = {run_id, run_id+'-fake', run_id+'-load'} | {run_id+'-'+v+'-'+s for v in ['baseline','candidate'] for s in ['app','db','redis']}
     cleanup = result.get('cleanup', [])
     require(len(cleanup) == 9 and {x['name'] for x in cleanup} == expected_names and all(x.get('removed') is True for x in cleanup), 'resource cleanup evidence incomplete')
@@ -100,12 +102,12 @@ def verify_soak(result: dict, memory: list, series: dict, environment: dict) -> 
     return {'passed':True, 'source_commit':SOURCE, 'run_id':run_id, 'actual_elapsed_s':result['actual_elapsed_s'], 'recomputed':computed, 'degradation_pct':degradation, 'limitations':['API-key HTTP/SSE full-image workload, not OAuth/WS load','Official v0.2.5 source rebuilt with pinned images, not an official registry binary','No live A/C or TLS/JA3 equivalence claim']}
 
 def verify_directory(root: Path) -> dict:
-    soak = root / 'fullimage-soak01'
+    soak = root / 'fullimage-soak03'
     result = load(soak/'result.json')
     report = verify_soak(result, load(soak/'memory.json'), {v:load(soak/(v+'-latencies.json')) for v in ['baseline','candidate']}, load(soak/'environment.json'))
-    require(load(root/'fullimage-soak01-driver-result.json')['exit'] == 0, 'driver did not exit successfully')
+    require(load(root/'fullimage-soak03-driver-result.json')['exit'] == 0, 'driver did not exit successfully')
     for name, expected in HARNESS.items():
-        require(digest(root/'fullimage-harness-v2'/name) == expected, 'persisted harness file changed')
+        require(digest(root/'fullimage-harness-v3'/name) == expected, 'persisted harness file changed')
     for prefix in ['linux-full-unit-release3','linux-race-release3']:
         value = load(root/(prefix+'-result.json'))
         require(value['source_commit'] == SOURCE and value['go_exit'] == 0 and not value['failed'], 'test source/status mismatch')

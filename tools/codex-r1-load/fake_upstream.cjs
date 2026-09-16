@@ -1,16 +1,21 @@
 // Isolated B8 fake upstream. No external dependencies or network clients.
 const http = require('node:http');
-const seen = new Set();
+const { DuplicateTracker } = require('./duplicate_tracker.cjs');
+const tracker = new DuplicateTracker();
 const stats = {requests:0, stream:0, nonstream:0, duplicates:0, invalid:0};
+function snapshot(){ return {...stats, tracker:tracker.snapshot(), memory:process.memoryUsage()}; }
 http.createServer((req,res)=>{
-  if(req.method==='GET' && req.url==='/stats') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify(stats));return;}
+  if(req.method==='GET' && req.url==='/stats') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify(snapshot()));return;}
   if(req.method!=='POST' || !req.url.endsWith('/responses')) {res.writeHead(404);res.end();return;}
   let raw=''; req.on('data',d=>{raw+=d; if(raw.length>65536) req.destroy();});
   req.on('end',()=>{
     let body;try{body=JSON.parse(raw);}catch{stats.invalid++;res.writeHead(400);res.end('invalid json');return;}
     const marker=/^r1:([^|]+)\|/.exec(String(body.input));
     if(!marker || req.headers.authorization!=='Bearer synthetic-upstream-r1-only') {stats.invalid++;res.writeHead(400);res.end('invalid synthetic fixture');return;}
-    const rid=marker[1]; stats.requests++;if(seen.has(rid)) stats.duplicates++;seen.add(rid);
+    const rid=marker[1];
+    const tracked=tracker.mark(rid);
+    if(!tracked.valid){stats.invalid++;res.writeHead(400);res.end('invalid synthetic request id');return;}
+    stats.requests++;if(tracked.duplicate)stats.duplicates++;
     const response={id:'resp_'+rid,object:'response',model:body.model,status:'completed',output:[{id:'msg_'+rid,type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:'r1-ok',annotations:[]}]}],usage:{input_tokens:1024,output_tokens:2,total_tokens:1026}};
     if(!body.stream){stats.nonstream++;setTimeout(()=>{res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(response));},25);return;}
     stats.stream++;res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache'});

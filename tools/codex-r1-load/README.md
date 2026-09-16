@@ -2,8 +2,8 @@
 
 This is an isolated acceptance fixture, **not a production service or live-account test**.
 The actual controller used by the September 16 run is frozen separately in
-`D:\Temp\sub2api-build\r1\fullimage-harness-v1`. Do not edit that snapshot or
-restart a running job after a conversation interruption.
+`D:\Temp\sub2api-build\r1\fullimage-harness-v3`. Do not edit that snapshot or
+restart a running job after a conversation interruption. The v3 fake uses an exact bitset duplicate tracker instead of retaining every full request ID, and the controller records fake/load/app state and logs for failure attribution.
 
 ## What is measured
 
@@ -53,7 +53,7 @@ cleanup. Never use global Docker prune or remove the pre-existing local stack.
 
 Run on the authorized WSL Linux host as a user authorized to access its Docker
 socket. Supply immutable image digests, a unique `sub2api-r1-b8-...` run ID, and a
-new output directory. **This launches a new test; do not use it to resume soak01.**
+new output directory. **This launches a new test; do not use it to resume or overwrite any failed soak output directory.**
 
 ```sh
 python3 tools/codex-r1-load/run.py \
@@ -67,7 +67,7 @@ python3 tools/codex-r1-load/run.py \
 contains a terminal verdict. The launch wrapper also writes a driver exit record.
 A stale MCP job handle is not evidence of success or a reason to repeat the test.
 
-After the **actual** soak01 run exits and cleanup finishes, independently verify:
+After the **actual** soak03 run exits and cleanup finishes, independently verify:
 
 ```powershell
 python tools/codex-r1-load/verify.py D:\Temp\sub2api-build\r1

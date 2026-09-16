@@ -11,7 +11,7 @@ P=argparse.ArgumentParser(); P.add_argument('--run-id',required=True); P.add_arg
 assert A.run_id.startswith('sub2api-r1-b8-') and A.run_id.replace('-','').isalnum(); assert 10<=A.seconds<=7200 and 0<=A.warmup<=600 and 4<=A.rps<=40; assert '@sha256:' in A.baseline and '@sha256:' in A.candidate
 OUT=pathlib.Path(A.output); OUT.mkdir(parents=True,exist_ok=False); ROOT=pathlib.Path(__file__).resolve().parent; os.environ['DOCKER_HOST']='unix:///var/run/docker.sock'
 PG='postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2'; REDIS='redis@sha256:09160599abd229764c0fb44cb6be640294e1d360a54b19985ab4843dcf2d90f1'; NODE='node@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81'
-NET=A.run_id; names=[]; network_created=False; mem=[]; apps={}; keys={}; fake_name=NET+'-fake'; load_name=NET+'-load'
+NET=A.run_id; names=[]; network_created=False; mem=[]; apps={}; keys={}; fake_name=NET+'-fake'; load_name=NET+'-load'; state_history=[]
 def write(name,obj):
  p=OUT/name; tmp=p.with_suffix(p.suffix+'.tmp'); tmp.write_text(json.dumps(obj,indent=2),encoding='utf-8'); tmp.replace(p)
 def docker(*args,input=None,check=True,timeout=30):
@@ -52,10 +52,22 @@ INSERT INTO accounts(id,name,platform,type,credentials,extra,concurrency,priorit
 INSERT INTO account_groups(account_id,group_id,priority) VALUES(8808,8808,1);
 INSERT INTO api_keys(user_id,key,name,group_id,status) VALUES(8808,'%s','r1-fake-load',8808,'active');
 COMMIT;"""%(creds,key); sql(db,seed); print('PROVISIONED',v,flush=True)
+def process_memory(name):
+ p=docker('exec',name,'cat','/proc/1/status',check=False,timeout=5)
+ if p.returncode!=0:return None
+ return {l.split(':')[0]:int(l.split()[1])*1024 for l in p.stdout.splitlines() if l.startswith(('VmRSS:','VmHWM:','VmSize:'))}
+def inspect_states():
+ states={}
+ for name in names:
+  p=docker('inspect',name,check=False,timeout=5)
+  if p.returncode!=0: states[name]={'missing':True}; continue
+  st=json.loads(p.stdout)[0]['State']; states[name]={k:st.get(k) for k in ['Status','Running','ExitCode','OOMKilled','Error','StartedAt','FinishedAt']}
+ return states
 def sample_memory(elapsed):
  row={'elapsed_s':round(elapsed,2)}
- for v,a in apps.items():
-  s=docker('exec',a['name'],'cat','/proc/1/status').stdout; row[v]={l.split(':')[0]:int(l.split()[1])*1024 for l in s.splitlines() if l.startswith(('VmRSS:','VmHWM:','VmSize:'))}
+ for v,a in apps.items(): row[v]=process_memory(a['name']) or {}
+ if fake_name in names: row['fake']=process_memory(fake_name) or {}
+ if load_name in names: row['load']=process_memory(load_name) or {}
  mem.append(row)
 def quantile(values,q):
  values=sorted(values); assert values; return values[min(len(values)-1,int((len(values)-1)*q))]
@@ -71,14 +83,17 @@ try:
  else: raise RuntimeError('fake upstream not ready')
  for v,img in [('baseline',A.baseline),('candidate',A.candidate)]: provision(v,img)
  config={'run_id':A.run_id,'seconds':A.seconds,'warmup':A.warmup,'rps':A.rps,'apps':{v:{'url':apps[v]['url'],'key':keys[v]} for v in apps},'fake_url':'http://'+fake_name+':8081'}; write('agent-config.json',config)
- harness={'controller_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'fixture_sha256':hashlib.sha256((ROOT/'fake_upstream.cjs').read_bytes()).hexdigest(),'agent_sha256':hashlib.sha256((ROOT/'load_agent.cjs').read_bytes()).hexdigest()}
+ harness={'controller_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'fixture_sha256':hashlib.sha256((ROOT/'fake_upstream.cjs').read_bytes()).hexdigest(),'agent_sha256':hashlib.sha256((ROOT/'load_agent.cjs').read_bytes()).hexdigest(),'tracker_sha256':hashlib.sha256((ROOT/'duplicate_tracker.cjs').read_bytes()).hexdigest()}
  write('environment.json',{'apps':apps,'network':{'name':NET,'internal':True},'load_agent':load_name,**harness})
  host_start=time.monotonic(); expected=time.time()+A.warmup+A.seconds+5; result['started_utc']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()); result['expected_finish_epoch']=expected
  run_container(load_name,NODE,['--cpus=2','--memory=1g','--security-opt','no-new-privileges','--mount',f'type=bind,source={ROOT},target=/harness,readonly','--mount',f'type=bind,source={OUT},target=/out'],['node','/harness/load_agent.cjs'])
  while True:
   if (OUT/'STOP').exists(): raise RuntimeError('cancelled by STOP sentinel')
   sample_memory(max(0,time.monotonic()-host_start)); write('memory.json',mem)
-  info=json.loads(docker('inspect',load_name).stdout)[0]; running=info['State']['Running']; status={'phase':'running','elapsed_s':round(time.monotonic()-host_start,2),'expected_finish_epoch':expected,'latest_memory':mem[-1]}
+  states=inspect_states(); state_history.append({'elapsed_s':round(time.monotonic()-host_start,2),'states':states}); write('container-states.json',state_history)
+  info=json.loads(docker('inspect',load_name).stdout)[0]; running=info['State']['Running']; status={'phase':'running','elapsed_s':round(time.monotonic()-host_start,2),'expected_finish_epoch':expected,'latest_memory':mem[-1],'states':states}
+  for name,st in states.items():
+   if name!=load_name and st.get('Running') is not True: raise RuntimeError('infrastructure container exited: '+name+' state='+json.dumps(st,sort_keys=True))
   if (OUT/'agent-status.json').is_file():
    try: status['agent']=json.loads((OUT/'agent-status.json').read_text(encoding='utf-8'))
    except Exception: pass
@@ -93,15 +108,17 @@ try:
   if not stable: stable=[x[v]['VmRSS'] for x in mem]
   result['variants'][v]={**av,'stable_rss_median':statistics.median(stable),'stable_rss_samples':len(stable),'rss_peak':max(x[v]['VmRSS'] for x in mem),'early_rss_median':statistics.median(early) if early else None,'final_rss_median':statistics.median(final) if final else None}
  b=result['variants']['baseline']; c=result['variants']['candidate']; result['degradation_pct']={k:(c['latency'][k]['p95_ms']/b['latency'][k]['p95_ms']-1)*100 for k in ['stream','nonstream']}; result['degradation_pct']['stable_rss']=(c['stable_rss_median']/b['stable_rss_median']-1)*100
- result['gates']={'zero_errors':not any(v['errors'] for v in result['variants'].values()),'no_upstream_duplicates':result['upstream']['duplicates']==0,'valid_upstream_inputs':result['upstream']['invalid']==0,'upstream_count_exact':result['upstream']['requests']==sum(v['requests'] for v in result['variants'].values())+20,'duration_complete':result['actual_elapsed_s']>=A.warmup+A.seconds-1,'sample_count_complete':all(sum(x['n'] for x in v['latency'].values())>=A.seconds*A.rps-8 for v in result['variants'].values()),'p95_within_10pct':all(result['degradation_pct'][k]<=10 for k in ['stream','nonstream']),'stable_rss_within_20pct':result['degradation_pct']['stable_rss']<=20}; result['passed']=all(result['gates'].values())
+ result['gates']={'zero_errors':not any(v['errors'] for v in result['variants'].values()),'no_upstream_duplicates':result['upstream']['duplicates']==0,'valid_upstream_inputs':result['upstream']['invalid']==0,'upstream_count_exact':result['upstream']['requests']==sum(v['requests'] for v in result['variants'].values())+20,'duration_complete':result['actual_elapsed_s']>=A.warmup+A.seconds-1,'sample_count_complete':all(sum(x['n'] for x in v['latency'].values())>=A.seconds*A.rps-8 for v in result['variants'].values()),'p95_within_10pct':all(result['degradation_pct'][k]<=10 for k in ['stream','nonstream']),'stable_rss_within_20pct':result['degradation_pct']['stable_rss']<=20,'fake_tracker_bounded':result['upstream'].get('tracker',{}).get('bytes',2**31)<2*1024*1024 and result['upstream'].get('memory',{}).get('heapUsed',2**31)<128*1024*1024}; result['passed']=all(result['gates'].values())
 except Exception as e: result['error']=repr(e)
 finally:
  cleanup=[]
+ try: write('container-states-final.json',inspect_states())
+ except Exception: pass
  for name in reversed(names):
   try:
    info=json.loads(docker('inspect',name).stdout)[0]
    if info['Config']['Labels'].get('sub2api.r1.b8')!=A.run_id: raise RuntimeError('label ownership mismatch')
-   if name.endswith('-app'): (OUT/(name+'-tail.log')).write_text(docker('logs','--tail','500',name,check=False).stdout,encoding='utf-8')
+   if name.endswith(('-app','-fake','-load')): (OUT/(name+'-tail.log')).write_text(docker('logs','--tail','2000',name,check=False).stdout+docker('logs','--tail','2000',name,check=False).stderr,encoding='utf-8')
    p=docker('rm','-f',name,check=False); cleanup.append({'name':name,'removed':p.returncode==0})
   except Exception as e: cleanup.append({'name':name,'error':repr(e)})
  if network_created:

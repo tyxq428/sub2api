@@ -13,8 +13,8 @@ class VerifierTests(unittest.TestCase):
         self.run_id='sub2api-r1-b8-soak01'
         self.memory=[{'elapsed_s':i, 'baseline':{'VmRSS':100000000}, 'candidate':{'VmRSS':100000000}} for i in range(0,7501,30)]
         self.series={v:{k:[50.0]*72000 for k in ['stream','nonstream']} for v in ['baseline','candidate']}
-        self.env={'network':{'internal':True},'controller_sha256':HARNESS['run.py'],'fixture_sha256':HARNESS['fake_upstream.cjs'],'apps':{'baseline':{'image':BASELINE},'candidate':{'image':CANDIDATE}}}
-        names={self.run_id,self.run_id+'-fake'}|{self.run_id+'-'+v+'-'+s for v in ['baseline','candidate'] for s in ['app','db','redis']}
+        self.env={'network':{'internal':True},'controller_sha256':HARNESS['run.py'],'agent_sha256':HARNESS['load_agent.cjs'],'fixture_sha256':HARNESS['fake_upstream.cjs'],'apps':{'baseline':{'image':BASELINE},'candidate':{'image':CANDIDATE}}}
+        names={self.run_id,self.run_id+'-fake',self.run_id+'-load'}|{self.run_id+'-'+v+'-'+s for v in ['baseline','candidate'] for s in ['app','db','redis']}
         gates=['zero_errors','no_upstream_duplicates','valid_upstream_inputs','upstream_count_exact','duration_complete','sample_count_complete','p95_within_10pct','stable_rss_within_20pct']
         self.result={'parameters':{'seconds':7200,'warmup':300,'rps':20,'baseline':BASELINE,'candidate':CANDIDATE},'network_internal':True,'real_model_requests':0,'actual_elapsed_s':7500.1,'passed':True,'gates':dict.fromkeys(gates,True),'run_id':self.run_id,'upstream':{'requests':300020,'duplicates':0,'invalid':0},'cleanup':[{'name':n,'removed':True} for n in names],'cleanup_complete':True,'variants':{}}
         for v in ['baseline','candidate']:

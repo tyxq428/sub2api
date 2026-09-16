@@ -19,7 +19,7 @@ from typing import Any
 SOURCE = '8905cbb82d4bad011eddae5e83228f52906c4b40'
 BASELINE = 'local/sub2api-r1-baseline@sha256:8af502b156cecdbb6f9469d604776c540ae501995094f9d8a50bb08f4bd42611'
 CANDIDATE = 'local/sub2api-r1@sha256:ed414eb7c1896506c1a7ab009ff3cfdca3857a9de366776e746be95b1f555a85'
-HARNESS = {'run.py': '48f75385ce61a4b7ac4f32b1a67d5a6efadb8fba3a99e42c58d4c7623b481a30', 'fake_upstream.cjs': 'def9877ec3018eb89695f6ffb0eededd83ef9f227fcde4327b24f289cb758cf7'}
+HARNESS = {'run.py': '5b9b7dbbffdb7e5d00054e9a6328ff11430e07c01db37b5c1fe96e0028379b6d', 'load_agent.cjs': '61b5a329378d52257e7782641afe30ea67896d2994379318d68e5b0a35fe9596', 'fake_upstream.cjs': 'def9877ec3018eb89695f6ffb0eededd83ef9f227fcde4327b24f289cb758cf7'}
 SECONDS, WARMUP, RPS = 7200, 300, 20
 
 class VerificationError(ValueError):
@@ -56,7 +56,7 @@ def verify_soak(result: dict, memory: list, series: dict, environment: dict) -> 
     require(result.get('passed') is True and not result.get('error'), 'load controller did not pass')
     expected_gates = {'zero_errors','no_upstream_duplicates','valid_upstream_inputs','upstream_count_exact','duration_complete','sample_count_complete','p95_within_10pct','stable_rss_within_20pct'}
     require(all(result.get('gates', {}).get(k) is True for k in expected_gates), 'controller gate absent or failed')
-    require(environment.get('controller_sha256') == HARNESS['run.py'] and environment.get('fixture_sha256') == HARNESS['fake_upstream.cjs'], 'harness identity mismatch')
+    require(environment.get('controller_sha256') == HARNESS['run.py'] and environment.get('agent_sha256') == HARNESS['load_agent.cjs'] and environment.get('fixture_sha256') == HARNESS['fake_upstream.cjs'], 'harness identity mismatch')
     require(bool(memory) and memory[0]['elapsed_s'] < 60 and memory[-1]['elapsed_s'] >= WARMUP + SECONDS - 31, 'memory observation window incomplete')
     require(all(0 <= b['elapsed_s'] - a['elapsed_s'] <= 65 for a,b in zip(memory, memory[1:])), 'memory sampling has an excessive gap')
     computed = {}
@@ -89,9 +89,9 @@ def verify_soak(result: dict, memory: list, series: dict, environment: dict) -> 
     require(upstream['requests'] == sum(v['requests'] for v in result['variants'].values()) + 20, 'upstream/client request counts differ')
     run_id = result['run_id']
     require(run_id == 'sub2api-r1-b8-soak01', 'unrecognized run identity')
-    expected_names = {run_id, run_id+'-fake'} | {run_id+'-'+v+'-'+s for v in ['baseline','candidate'] for s in ['app','db','redis']}
+    expected_names = {run_id, run_id+'-fake', run_id+'-load'} | {run_id+'-'+v+'-'+s for v in ['baseline','candidate'] for s in ['app','db','redis']}
     cleanup = result.get('cleanup', [])
-    require(len(cleanup) == 8 and {x['name'] for x in cleanup} == expected_names and all(x.get('removed') is True for x in cleanup), 'resource cleanup evidence incomplete')
+    require(len(cleanup) == 9 and {x['name'] for x in cleanup} == expected_names and all(x.get('removed') is True for x in cleanup), 'resource cleanup evidence incomplete')
     require(result.get('cleanup_complete') is True, 'cleanup not complete')
     degradation = {kind:(computed['candidate'][kind]['p95_ms']/computed['baseline'][kind]['p95_ms']-1)*100 for kind in ['stream','nonstream']}
     degradation['stable_rss'] = (computed['candidate']['stable_rss_median']/computed['baseline']['stable_rss_median']-1)*100
@@ -105,7 +105,7 @@ def verify_directory(root: Path) -> dict:
     report = verify_soak(result, load(soak/'memory.json'), {v:load(soak/(v+'-latencies.json')) for v in ['baseline','candidate']}, load(soak/'environment.json'))
     require(load(root/'fullimage-soak01-driver-result.json')['exit'] == 0, 'driver did not exit successfully')
     for name, expected in HARNESS.items():
-        require(digest(root/'fullimage-harness-v1'/name) == expected, 'persisted harness file changed')
+        require(digest(root/'fullimage-harness-v2'/name) == expected, 'persisted harness file changed')
     for prefix in ['linux-full-unit-release3','linux-race-release3']:
         value = load(root/(prefix+'-result.json'))
         require(value['source_commit'] == SOURCE and value['go_exit'] == 0 and not value['failed'], 'test source/status mismatch')

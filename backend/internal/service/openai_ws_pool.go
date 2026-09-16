@@ -84,6 +84,7 @@ type openAIWSAcquireRequest struct {
 }
 
 type openAIWSHandshakeCompatibilityKey struct {
+	proxyBinding        [32]byte // account-bound route only; no plaintext credentials
 	betaFeatures        string
 	codexInstallationID string
 	sessionIDHyphen     string
@@ -1110,8 +1111,15 @@ func (p *openAIWSConnPool) Acquire(ctx context.Context, req openAIWSAcquireReque
 	if p != nil {
 		p.metrics.acquireTotal.Add(1)
 	}
+	// Route validation must happen before reuse as well as before a fresh dial.
+	req = cloneOpenAIWSAcquireRequest(req)
+	proxyURL, proxyErr := resolveOpenAIDispatchProxyURL(ctx, req.Account, req.ProxyURL)
+	if proxyErr != nil {
+		return nil, proxyErr
+	}
+	req.ProxyURL = proxyURL
 	queueWait := &openAIWSAcquireQueueWait{}
-	lease, err := p.acquire(ctx, cloneOpenAIWSAcquireRequest(req), 0, queueWait)
+	lease, err := p.acquire(ctx, req, 0, queueWait)
 	if lease != nil && queueWait.rewoken {
 		// 广播重选经 tryAcquire 拿令牌，不像排队分支那样在取得令牌后检查取消，
 		// 这里补上复查：上下文已取消就归还令牌并按取消返回。
@@ -2115,6 +2123,13 @@ func (p *openAIWSConnPool) UnpinConn(accountID int64, connID string) {
 }
 
 func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequest) (*openAIWSConn, error) {
+	// Prewarm also enters here without Acquire. Check before auth generation.
+	req = cloneOpenAIWSAcquireRequest(req)
+	proxyURL, proxyErr := resolveOpenAIDispatchProxyURL(ctx, req.Account, req.ProxyURL)
+	if proxyErr != nil {
+		return nil, proxyErr
+	}
+	req.ProxyURL = proxyURL
 	if p == nil || p.clientDialer == nil {
 		return nil, errors.New("openai ws client dialer is nil")
 	}
@@ -2315,6 +2330,20 @@ func (p *openAIWSConnPool) dialTimeout() time.Duration {
 
 func cloneOpenAIWSAcquireRequest(req openAIWSAcquireRequest) openAIWSAcquireRequest {
 	copied := req
+	// Copy only the egress values owned by this request. This is deliberately
+	// not a deep credential/metadata snapshot; those lifecycles remain separate.
+	if req.Account != nil && req.Account.Platform == PlatformOpenAI {
+		account := *req.Account
+		if req.Account.ProxyID != nil {
+			id := *req.Account.ProxyID
+			account.ProxyID = &id
+		}
+		if req.Account.Proxy != nil {
+			proxy := *req.Account.Proxy
+			account.Proxy = &proxy
+		}
+		copied.Account = &account
+	}
 	copied.Headers = cloneHeader(req.Headers)
 	copied.WSURL = stringsTrim(req.WSURL)
 	copied.ProxyURL = stringsTrim(req.ProxyURL)
@@ -2363,6 +2392,7 @@ func normalizeOpenAIWSBetaFeatures(headers http.Header) string {
 
 func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Header) openAIWSHandshakeCompatibilityKey {
 	key := openAIWSHandshakeCompatibilityKey{
+		proxyBinding: openAIProxyBindingHash(account),
 		betaFeatures: normalizeOpenAIWSBetaFeatures(headers),
 	}
 	mode := activeCodexFingerprintMode(account)

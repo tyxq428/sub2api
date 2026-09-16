@@ -36,7 +36,22 @@ REGRESSION = frozenset({
     "TestQueryUsageResetCreditCountPrecedence",
     "TestResetCreditTargetedSendsStableCreditAndRedeemIDs",
 })
-ALL_REQUIRED = REQUIRED | REGRESSION
+BATCH2_REQUIRED = frozenset({
+    "TestGapV2GatewayTokenPreflight",
+    "TestGapV2HTTPDispatchBinding",
+    "TestGapV2HTTPUnboundAndOtherPlatformsUnchanged",
+    "TestGapV2ModelsBrokenBindingDoesNotDispatch",
+    "TestGapV2ModelsShadowUsesCredentialRoute",
+    "TestGapV2OAuthBoundProxyFailsClosed",
+    "TestGapV2OAuthRawProxyValidation",
+    "TestGapV2OAuthValidRoutesAndStatePreserved",
+    "TestGapV2PrivacyBoundProxyFailsClosed",
+    "TestGapV2PrivacyValidRoutesAndSkipPreserved",
+    "TestGapV2WSBrokenBindingBeforeDialOrPrewarm",
+    "TestGapV2WSPoolRouteChangeDoesNotReuseConnection",
+    "TestGapV2WSQueuedProxySnapshotIsIndependent",
+})
+ALL_REQUIRED = REQUIRED | REGRESSION | BATCH2_REQUIRED
 
 
 def validate_log(path: Path, exit_code: int = 0) -> dict:

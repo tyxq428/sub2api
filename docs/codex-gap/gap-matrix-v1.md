@@ -78,3 +78,7 @@
 外部 fork 仅作为设计灵感，首批不复制其代码，也不将其“降低风控/恢复账号”叙述当作实验结论。
 
 测试结果及交付 commit 记录在同目录 `verification.md`；未写入通过结果前，不视为完成。
+
+## 第二批状态更新
+
+第二批已在首批提交之上扩展 OAuth、models、admin/background privacy、公共HTTP和WS池边界。G09由“仅quota接入”更新为“部分主要边界已接入、专用通道仍待验证”；G06仅增加WS路由字段的值快照，不宣称完整不可变attempt。新增发现是WS旧连接可能跨代理配置复用，已通过路由摘要兼容键和回归修复。详细覆盖、错误码兼容性和剩余范围见 [coverage-v2.md](coverage-v2.md)，测试见 [verification-v2.md](verification-v2.md)。

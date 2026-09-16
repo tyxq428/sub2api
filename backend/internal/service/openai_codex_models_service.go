@@ -1631,6 +1631,13 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 		return nil, infraerrors.Newf(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_CREDENTIALS_FAILED", "resolve credential account: %v", err)
 	}
 
+	// Credential-shadow requests must use the credential account's egress.
+	// Validate before auth header generation and before any fresh/stale cache hit.
+	proxyURL, proxyErr := resolveOpenAIAccountProxyURL(ctx, credAccount, nil)
+	if proxyErr != nil {
+		return nil, proxyErr
+	}
+
 	clientVersion = strings.TrimSpace(clientVersion)
 	if clientVersion == "" {
 		clientVersion = CodexCanonicalClientVersion()
@@ -1704,11 +1711,6 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 		headerVersion = identity.version
 	}
 	headers.Set("Version", headerVersion)
-
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
 
 	request := openAIModelsRequest{
 		url:                 requestURL.String(),

@@ -9,6 +9,18 @@ func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 // doOpenAIUpstream 只在 OpenAI OAuth 能力绑定已启用时把真实请求交给插件。
 // 插件返回标准 http.Response，响应解析、错误映射、SSE 和计费仍由现有核心链处理。
 func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL string, account *Account) (*http.Response, error) {
+	routeAccount := account
+	if account != nil && account.Platform == PlatformOpenAI && account.IsShadow() {
+		var resolveErr error
+		routeAccount, resolveErr = resolveCredentialAccount(request.Context(), s.accountRepo, account)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+	}
+	proxyURL, proxyErr := resolveOpenAIDispatchProxyURL(request.Context(), routeAccount, proxyURL)
+	if proxyErr != nil {
+		return nil, proxyErr
+	}
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
@@ -26,6 +38,18 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	account *Account,
 	useTLSFallback bool,
 ) (*http.Response, error) {
+	routeAccount := account
+	if account != nil && account.Platform == PlatformOpenAI && account.IsShadow() {
+		var resolveErr error
+		routeAccount, resolveErr = resolveCredentialAccount(request.Context(), s.accountRepo, account)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+	}
+	proxyURL, proxyErr := resolveOpenAIDispatchProxyURL(request.Context(), routeAccount, proxyURL)
+	if proxyErr != nil {
+		return nil, proxyErr
+	}
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {

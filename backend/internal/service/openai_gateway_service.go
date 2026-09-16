@@ -1207,6 +1207,12 @@ func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Acco
 		}
 		account = credAccount
 	}
+	// Resolve explicit OpenAI egress before a token-cache hit or OAuth refresh.
+	if account.Platform == PlatformOpenAI {
+		if _, err := resolveOpenAIAccountProxyURL(ctx, account, nil); err != nil {
+			return "", "", err
+		}
+	}
 	switch account.Type {
 	case AccountTypeOAuth:
 		if account.IsOpenAIAgentIdentity() {

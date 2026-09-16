@@ -1652,14 +1652,12 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 		return ""
 	}
 
-	var proxyURL string
-	if account.ProxyID != nil {
-		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
-			proxyURL = p.URL()
-		}
+	proxyURL, proxyErr := resolveOpenAIProxyIDURL(ctx, account.ProxyID, s.proxyRepo)
+	mode := PrivacyModeFailed
+	if proxyErr == nil {
+		mode = disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
 	}
 
-	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
 	if mode == "" {
 		return ""
 	}
@@ -1686,14 +1684,12 @@ func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, account *Acco
 		return ""
 	}
 
-	var proxyURL string
-	if account.ProxyID != nil {
-		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
-			proxyURL = p.URL()
-		}
+	proxyURL, proxyErr := resolveOpenAIProxyIDURL(ctx, account.ProxyID, s.proxyRepo)
+	mode := PrivacyModeFailed
+	if proxyErr == nil {
+		mode = disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
 	}
 
-	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
 	if mode == "" {
 		return ""
 	}

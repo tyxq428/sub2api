@@ -2872,7 +2872,8 @@ func TestFetchCodexModelsManifestAPIKeyCacheKeyIsolatesRequestIdentity(t *testin
 	proxyID := int64(9)
 	differentProxy := newCodexModelsAPIKeyTestAccount("https://upstream.example")
 	differentProxy.ProxyID = &proxyID
-	differentProxy.Proxy = &Proxy{Protocol: "http", Host: "127.0.0.1", Port: 8080}
+	// The cache-isolation fixture must carry the same binding ID as a hydrated DB proxy.
+	differentProxy.Proxy = &Proxy{ID: proxyID, Protocol: "http", Host: "127.0.0.1", Port: 8080}
 	fetch(differentProxy, "0.144.0")
 	fetch(differentProxy, "0.144.0")
 

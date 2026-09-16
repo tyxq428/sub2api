@@ -105,3 +105,27 @@ func openAIProxyBindingHash(account *Account) [32]byte {
 func ResolveOpenAIProxyBinding(ctx context.Context, id *int64, proxy *Proxy) (string, error) {
 	return resolveOpenAIAccountProxyURL(ctx, &Account{ProxyID: id, Proxy: proxy}, nil)
 }
+
+// resolveOpenAIRequestProxyURL is for auxiliary entrypoints that do not pass
+// through doOpenAIUpstream or the pooled WS dialer. It selects the credential
+// owner's route while leaving non-OpenAI account routing unchanged.
+func (s *OpenAIGatewayService) resolveOpenAIRequestProxyURL(ctx context.Context, account *Account) (string, error) {
+	if account == nil {
+		return resolveOpenAIAccountProxyURL(ctx, nil, nil)
+	}
+	if account.Platform != PlatformOpenAI {
+		return resolveAccountProxyURL(account), nil
+	}
+	routeAccount := account
+	if account.IsShadow() {
+		if s == nil || s.accountRepo == nil {
+			return "", infraerrors.New(http.StatusBadGateway, "OPENAI_PROXY_UNAVAILABLE", "credential owner route is unavailable")
+		}
+		var err error
+		routeAccount, err = resolveCredentialAccount(ctx, s.accountRepo, account)
+		if err != nil {
+			return "", err
+		}
+	}
+	return resolveOpenAIAccountProxyURL(ctx, routeAccount, nil)
+}

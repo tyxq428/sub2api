@@ -105,6 +105,10 @@ func (s *OpenAIGatewayService) fetchOpenAIImageURLBase64(ctx context.Context, ac
 	if s == nil || s.httpUpstream == nil {
 		return "", errors.New("http upstream is not configured")
 	}
+	proxyURL, proxyErr := s.resolveOpenAIRequestProxyURL(ctx, account)
+	if proxyErr != nil {
+		return "", proxyErr
+	}
 	downloadURL, err := s.validateOutboundURL(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid image url: %w", err)
@@ -119,10 +123,7 @@ func (s *OpenAIGatewayService) fetchOpenAIImageURLBase64(ctx context.Context, ac
 		return "", fmt.Errorf("build image download request: %w", err)
 	}
 	req.Header.Set("Accept", "image/*,*/*;q=0.8")
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
+
 	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		return "", fmt.Errorf("download image: %w", err)

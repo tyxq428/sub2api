@@ -685,6 +685,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if account == nil {
 		return errors.New("account is nil")
 	}
+	proxyURL, proxyErr := s.resolveOpenAIRequestProxyURL(ctx, account)
+	if proxyErr != nil {
+		return proxyErr
+	}
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
@@ -855,10 +859,6 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	)
 	if buildHdrErr != nil {
 		return fmt.Errorf("build ws headers: %w", buildHdrErr)
-	}
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
 	}
 
 	dialer := s.getOpenAIWSPassthroughDialer()

@@ -659,8 +659,18 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		}
 		apiKeyID := getAPIKeyIDFromContext(c)
 		// 先保存客户端原始值，再做 compact 补充，避免后续统一隔离时读到已处理的值。
-		clientSessionID := strings.TrimSpace(req.Header.Get("session_id"))
-		clientConversationID := strings.TrimSpace(req.Header.Get("conversation_id"))
+		clientSessionID := strings.TrimSpace(req.Header.Get("session-id"))
+		if clientSessionID == "" {
+			clientSessionID = strings.TrimSpace(req.Header.Get("session_id"))
+		}
+		clientConversationID := strings.TrimSpace(req.Header.Get("conversation-id"))
+		if clientConversationID == "" {
+			clientConversationID = strings.TrimSpace(req.Header.Get("conversation_id"))
+		}
+		// Remove raw aliases before account scoping so they cannot diverge from
+		// the canonical isolated values projected below.
+		req.Header.Del("session-id")
+		req.Header.Del("conversation-id")
 		if isOpenAIResponsesCompactPath(c) {
 			req.Header.Set("accept", "application/json")
 			if req.Header.Get("version") == "" {
@@ -704,6 +714,12 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		req.Header.Set("user-agent", CodexCanonicalUserAgent())
 	}
 	applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+	if scoped := strings.TrimSpace(req.Header.Get("session_id")); scoped != "" {
+		req.Header.Set("session-id", scoped)
+	}
+	if scoped := strings.TrimSpace(req.Header.Get("conversation_id")); scoped != "" {
+		req.Header.Set("conversation-id", scoped)
+	}
 
 	// 指纹收敛：使用 forwardOpenAIPassthrough 中预计算的收敛 ID 改写出站头，
 	// 与请求体 client_metadata 共享同一份 IDs（与非透传路径相同的相对位置：

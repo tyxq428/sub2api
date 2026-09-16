@@ -15,6 +15,10 @@ import sys
 import tempfile
 
 REQUIRED = frozenset({
+    "TestR1B5HandlerPreservesHyphenatedSessionAliasesToFakeUpstream",
+    "TestR1B5DefaultLinuxFallbackMatchesLockedReferenceEnvironment",
+    "TestR1B5PassthroughPreservesConfiguredOfficialClientSurface",
+    "TestR1B5PassthroughUsesHyphenatedIngressSessionAliases",
     "TestR1OpenAIAccountTestDirectAPIKeyPathsBrokenBindingDoNotDispatch",
     "TestR1RequiredProxyAttemptBoundary",
     "TestR1CodexPATWhoamiDoesNotFollowRedirect",
@@ -91,6 +95,7 @@ def validate_log(path: Path, exit_code: int = 0) -> dict:
                 package_passes.add(event.get("Package"))
     missing = ALL_REQUIRED - (ran & passed)
     expected_packages = {
+        "github.com/Wei-Shaw/sub2api/internal/handler",
         "github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl",
         "github.com/Wei-Shaw/sub2api/internal/repository",
         "github.com/Wei-Shaw/sub2api/internal/service",
@@ -116,7 +121,7 @@ def self_test() -> None:
         events = []
         for name in sorted(ALL_REQUIRED):
             events += [{"Action": "run", "Test": name}, {"Action": "pass", "Test": name}]
-        for package in ["internal/pkg/proxyurl", "internal/service", "internal/repository"]:
+        for package in ["internal/handler", "internal/pkg/proxyurl", "internal/service", "internal/repository"]:
             events.append({"Action": "pass", "Package": "github.com/Wei-Shaw/sub2api/" + package})
         def save(data): path.write_text("\n".join(json.dumps(e) for e in data), encoding="utf-8")
         save(events)
@@ -151,7 +156,7 @@ def main() -> int:
         pattern = "^(TestParse_.*|" + "|".join(sorted(ALL_REQUIRED)) + ")$"
         command = [args.go, "test", "-p=4", "-mod=readonly", "-count=1", "-tags=unit",
                    "-json", "-timeout=180s", "-run", pattern,
-                   "./internal/pkg/proxyurl", "./internal/service", "./internal/repository"]
+                   "./internal/handler", "./internal/pkg/proxyurl", "./internal/service", "./internal/repository"]
         print("Running bounded offline contract suite; log=" + str(path), flush=True)
         with path.open("w", encoding="utf-8") as output:
             try:

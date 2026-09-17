@@ -163,7 +163,12 @@ def wait_app(docker: Docker, image: str) -> dict[str, Any]:
         "container_id": data["Id"],
         "image_id": data["Image"],
         "startup_seconds": round(time.monotonic() - started, 3),
+        # NetworkSettings.Ports can contain entries such as {"8080/tcp": null}
+        # for an EXPOSEd container port even when no host port is published.
+        # HostConfig.PortBindings is the authoritative host-publish signal for
+        # this rehearsal gate.
         "ports": data["NetworkSettings"].get("Ports", {}),
+        "host_port_bindings": data["HostConfig"].get("PortBindings") or {},
         "networks": sorted(data["NetworkSettings"]["Networks"]),
     }
 
@@ -303,7 +308,7 @@ def execute(evidence: Path) -> dict[str, Any]:
         report.update({
             "finished_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
             "network_internal": True,
-            "published_ports_zero": all(not step["ports"] for step in report["steps"]),
+            "published_ports_zero": all(not step["host_port_bindings"] for step in report["steps"]),
             "production_and_existing_staging_unchanged": before == after,
             "rehearsal_migration_count": baseline_db["migration_count"],
             "rehearsal_migration_sha256": baseline_db["migration_sha256"],

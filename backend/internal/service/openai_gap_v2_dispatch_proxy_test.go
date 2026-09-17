@@ -148,7 +148,7 @@ func TestGapV2HTTPDispatchBinding(t *testing.T) {
 					resp, err = (&AccountTestService{httpUpstream: upstream}).doOpenAIAccountTestUpstream(req, "", a, false)
 				}
 				if resp != nil && resp.Body != nil {
-					resp.Body.Close()
+					_ = resp.Body.Close()
 				}
 				return err
 			}

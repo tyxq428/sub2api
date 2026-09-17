@@ -69,7 +69,7 @@ func TestR1B6FirstOutputTimeoutDoesNotReplayAcrossAccounts(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer pw.Close()
+		defer func() { _ = pw.Close() }()
 		_, _ = io.WriteString(pw, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_r1_b6\"}}\n\n")
 		select {
 		case <-body.closed:

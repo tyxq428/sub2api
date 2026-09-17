@@ -38,7 +38,7 @@ func TestR1ExplicitHTTPProxyFailuresNeverConnectDirect(t *testing.T) {
 			require.NoError(t, err)
 			resp, err := client.Do(req)
 			if resp != nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 			require.Error(t, err)
 			require.Equal(t, int32(1), proxyCalls.Load())
@@ -50,7 +50,7 @@ func TestR1ExplicitHTTPProxyFailuresNeverConnectDirect(t *testing.T) {
 func TestR1SOCKS5HForwardsHostnameWithoutLocalResolution(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	names := make(chan string, 1)
 	done := make(chan struct{})
 	go func() {
@@ -59,7 +59,7 @@ func TestR1SOCKS5HForwardsHostnameWithoutLocalResolution(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 		greeting := make([]byte, 2)
 		if _, err = io.ReadFull(conn, greeting); err != nil {
@@ -96,7 +96,7 @@ func TestR1SOCKS5HForwardsHostnameWithoutLocalResolution(t *testing.T) {
 	require.NoError(t, err)
 	resp, err := client.Get("https://sub2api-r1-no-such-host.invalid/")
 	if resp != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	require.Error(t, err)
 	select {
@@ -131,7 +131,7 @@ func TestR1RedirectPolicyHasIndependentCachedClient(t *testing.T) {
 	}{{regular, 200}, {protected, 302}, {regular, 200}} {
 		resp, err := tt.client.Get(redirect.URL)
 		require.NoError(t, err)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		require.Equal(t, tt.status, resp.StatusCode)
 	}
 }

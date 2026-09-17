@@ -46,7 +46,7 @@ func TestR1DedicatedWSPassthroughProxyBinding(t *testing.T) {
 			server, done := startPassthroughLifecycleServer(t, ctx, svc, account)
 			defer server.Close()
 			conn := dialPassthroughLifecycleClient(t, server)
-			defer conn.CloseNow()
+			defer func() { _ = conn.CloseNow() }()
 			select {
 			case err := <-done:
 				require.Error(t, err)

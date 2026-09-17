@@ -1,0 +1,31 @@
+[Unit]
+Description=Sub2API R1 synthetic staging loopback relay
+After=docker.service
+Requires=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/sub2api-r1-staging/runtime
+ExecStart=/usr/bin/python3 /opt/sub2api-r1-staging/runtime/staging_relay.py
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=DOCKER_HOST=unix:///var/run/docker.sock
+Environment=DOCKER_CONFIG=/run/sub2api-r1-staging-relay
+RuntimeDirectory=sub2api-r1-staging-relay
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

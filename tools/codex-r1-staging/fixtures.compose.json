@@ -1,0 +1,74 @@
+{
+  "services": {
+    "fake": {
+      "image": "mitmproxy/mitmproxy@sha256:00b77b5d8804c8ad18cb6caefbf9d5849e895e8986c5ce011f4ae30f4385962f",
+      "pull_policy": "never",
+      "container_name": "sub2api-r1-staging-fake",
+      "entrypoint": [
+        "python",
+        "-u",
+        "/fake.py"
+      ],
+      "command": [],
+      "user": "65534:65534",
+      "restart": "unless-stopped",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "networks": {
+        "staging": {
+          "aliases": [
+            "fake",
+            "sub2api-r1-staging-fake"
+          ]
+        }
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/opt/sub2api-r1-staging/tests/fake_upstream.py",
+          "target": "/fake.py",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ],
+      "tmpfs": [
+        "/tmp:size=16m,mode=1777",
+        "/home/mitmproxy/.mitmproxy:size=1m,uid=65534,gid=65534,mode=0700"
+      ],
+      "mem_limit": "128m",
+      "pids_limit": 64,
+      "cpus": 0.5,
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import json,urllib.request; assert json.load(urllib.request.urlopen(\"http://127.0.0.1:18000/health\",timeout=2)).get(\"status\")==\"ok\""
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "start_period": "5s",
+        "retries": 6
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "5m",
+          "max-file": "2"
+        }
+      },
+      "labels": {
+        "sub2api.r1.staging": "true",
+        "sub2api.r1.synthetic": "true",
+        "sub2api.r1.task": "task_Wp1FXYEsm1bgOYAX9YEI"
+      }
+    }
+  }
+}

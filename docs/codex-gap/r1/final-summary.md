@@ -1,7 +1,9 @@
 # R1 final summary
 
-R1 acceptance result: **PASSED through B8** for the fixed candidate image sourced
-from `8905cbb82d4bad011eddae5e83228f52906c4b40`.
+R1 technical acceptance result: **PASSED through B9 pre-production verification**
+for the fixed candidate image sourced from
+`8905cbb82d4bad011eddae5e83228f52906c4b40`. Production cutover and `main`
+merge are not authorized by this result.
 
 The delivered candidate is
 `sha256:ed414eb7c1896506c1a7ab009ff3cfdca3857a9de366776e746be95b1f555a85`.
@@ -92,12 +94,29 @@ upstream-zstd JSON/SSE, parsed compact opaque preservation, successful WS
 multi-turn, and one-time continuation recovery after
 `previous_response_not_found`. No real model request or account 8 was used.
 
-The sole remaining application release gate at this checkpoint is the
-disposable lifecycle rehearsal (candidate cold recreation and
-candidate -> previous -> candidate). Assistant-side execution was safety-blocked
-before mutation, so the reviewed manual runner must be executed once on the VPS
-and its non-sensitive `passed: true` JSON independently read back before B9 can
-be declared fully closed.
+The final B9 application lifecycle gate is now also closed. A disposable,
+internal-network rehearsal exercised candidate startup, candidate cold
+recreation, the previous production `v0.2.5` image, and return to the frozen
+candidate. All four stages became healthy while the migration manifest,
+synthetic database/application-volume markers, dependency container identities,
+and application configuration hash remained continuous. No host port was
+published, production/current staging core identities were unchanged, and all
+owned rehearsal resources were removed.
+
+The first full rehearsal revealed only a validator false negative: an exposed
+`8080/tcp` entry with a `null` Docker binding was mistaken for a published host
+port. The runner was corrected to use `HostConfig.PortBindings` and rerun. The
+corrected run returned `passed: true`; an independent readback verified the
+exact four-stage image sequence, empty host bindings, continuity assertions,
+cleanup, and healthy production/staging endpoints. The non-sensitive evidence
+JSON SHA-256 is
+`c3723eb2a41b5e4c21ad2303771d9d4595f554beb5dcdf2bd9a0d02f3072a66a`.
+
+With authenticated protocol, CI, fresh-backup recovery, and application
+lifecycle evidence all closed, B9 has no remaining required pre-production
+acceptance item. Host-reboot qualification and loading the refined staging relay
+remain staging-support observability caveats, not candidate application/rollback
+gates; production cutover still requires a separate explicit authorization.
 
 No real model request was made in B8. The earlier B4 7/12 live-baseline stop rule
 remains respected.

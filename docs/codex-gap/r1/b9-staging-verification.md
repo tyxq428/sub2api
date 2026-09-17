@@ -1,6 +1,9 @@
 # R1 B9 VPS staging / pre-production verification
 
-Status at this checkpoint: **NO-GO for production cutover**.
+Status at this checkpoint: **B9 PRE-PRODUCTION VERIFICATION PASSED**.
+
+This result does not authorize a production cutover or a merge to `main`;
+those remain separate explicit actions.
 
 This document extends the completed B8 acceptance with evidence from the VPS
 staging environment. It does not change the frozen product candidate and does
@@ -130,20 +133,47 @@ at the end of the successful restore, live production had 32 more rows than the
 snapshot across five tables. Live row-count equality is not a valid gate for an
 online logical backup.
 
-The remaining release-gating lifecycle evidence is limited to a disposable
-application rehearsal: candidate cold recreation and a
-candidate -> previous-image -> candidate round trip with synthetic persistence
-and dependency/config continuity. Direct assistant execution of that rehearsal
-was blocked by the execution safety layer before any rehearsal resource was
-created; the blocked action was not retried through another syntax or tool.
+The disposable application lifecycle rehearsal is now complete. The audited
+runner uses exact image IDs, an internal-only Docker network, no host port
+bindings, in-process synthetic secrets, isolated PostgreSQL/Redis volumes, and
+snapshots the six production/current-staging core container identities before
+and after the rehearsal.
 
-`tools/codex-r1-staging/rehearse_lifecycle.py` is the audited manual runner for
-this final gate. Its default mode is plan-only. Execution requires the literal
-`--execute --ack DISPOSABLE_ONLY`, refuses pre-existing rehearsal resources,
-uses exact frozen image IDs, creates an internal network with no host ports,
-generates secrets only in-process, snapshots production/current-staging core
-identities, and cleans only resources created by that invocation. The runner is
-not evidence until its JSON is independently read back with `passed: true`.
+The exercised sequence was:
+
+1. candidate initial startup;
+2. candidate cold recreation;
+3. previous production `v0.2.5` image startup;
+4. return to the frozen candidate.
+
+All four stages became healthy. The exact image sequence was
+`ed414eb7... -> ed414eb7... -> 5d5c2cdd... -> ed414eb7...`. Across every
+stage, the 286-record migration manifest remained
+`e3191a9ea7a201fca2efa9d7478b8a46fcc5fa56b7f8cab47f5523b66bc7c4c9`,
+the synthetic database marker and `/app/data` marker survived, the application
+environment hash remained constant, and PostgreSQL/Redis container identities
+did not change.
+
+The first complete rehearsal exposed a validator-only false negative: Docker
+reported the image's declared `8080/tcp` as `NetworkSettings.Ports` with a
+`null` binding, which the original runner incorrectly treated as a published
+host port. The product/lifecycle steps themselves had all succeeded. The gate
+was corrected to use authoritative `HostConfig.PortBindings`; no product code
+was changed. The corrected runner is commit
+`ee10e08dfe527032574fd490ca1b286020874612`.
+
+The corrected rehearsal completed with `passed: true`, `published_ports_zero:
+true`, `production_and_existing_staging_unchanged: true`, persistence/config
+continuity true, and complete cleanup of the owned app, PostgreSQL, Redis,
+network, and volumes. It made zero real model requests and printed no
+credentials. The result file SHA-256 is
+`c3723eb2a41b5e4c21ad2303771d9d4595f554beb5dcdf2bd9a0d02f3072a66a`.
+
+An independent readback then revalidated the four step names and exact image
+IDs, empty host port bindings, identical migration/config state, marker
+persistence, unchanged dependencies/core identities, zero remaining rehearsal
+resources, and healthy production/staging endpoints. That independent gate also
+passed.
 
 Host-reboot qualification and loading the refined staging relay remain
 staging-support observability caveats. They are not part of the application
@@ -159,9 +189,9 @@ authorized production-data operation in this continuation was the fresh
 read-only logical backup described above; the restore target was isolated and
 disposable.
 
-Production cutover remains separately gated by explicit authorization after
-the unresolved B9 items are either completed or explicitly accepted as
-release residual risks.
+All required B9 application/recovery/CI criteria are now closed. Production
+cutover and `main` merge remain separately gated by explicit authorization and
+were not performed by this verification.
 
 ## Durable evidence references
 
@@ -183,5 +213,15 @@ release residual risks.
 - Authenticated protocol integration harness: changesets
   `change_uN8YwsBNRVoU7qQppcTx` and `change_MXC2p9osP-1u-XT2Eikf`; successful
   CI run `35202176347`, durable poll job `job_eqDs6ZsOi95ylxCbkgcc`.
+- Audited lifecycle runner commit before validator correction:
+  `82bf5df867b1150ba20a5256fdd9493f8dd509d8`; its full four-stage rehearsal
+  exposed only the declared-port/host-binding gate false negative.
+- Lifecycle host-binding validator correction: changeset
+  `change_y9pBTr7pp8XU0UfV1mzi`, commit
+  `ee10e08dfe527032574fd490ca1b286020874612`.
+- Corrected disposable lifecycle rehearsal: continuation job
+  `job_q_9mRofyDeMJe6_n7ZV_`.
+- Independent lifecycle readback: continuation job
+  `job_WIvzxnzHs9dsoyDyHF-f`.
 - Parent task: `task_Wp1FXYEsm1bgOYAX9YEI`.
 - Continuation task: `task_3sTpTF1TvzLkC2BK0-vN`.

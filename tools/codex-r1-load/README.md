@@ -67,7 +67,9 @@ python3 tools/codex-r1-load/run.py \
 contains a terminal verdict. The launch wrapper also writes a driver exit record.
 A stale MCP job handle is not evidence of success or a reason to repeat the test.
 
-After the **actual** soak03 run exits and cleanup finishes, independently verify:
+After the **accepted final** soak05 run exits and cleanup finishes, independently verify:
+
+> `soak03` and `soak04` are retained only as infrastructure-invalid evidence. They are not acceptance runs and the verifier rejects their run IDs.
 
 ```powershell
 python tools/codex-r1-load/verify.py D:\Temp\sub2api-build\r1

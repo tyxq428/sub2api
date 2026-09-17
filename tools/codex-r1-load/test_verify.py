@@ -10,7 +10,7 @@ from verify import (BASELINE, CANDIDATE, HARNESS, VerificationError,
 
 class VerifierTests(unittest.TestCase):
     def setUp(self):
-        self.run_id='sub2api-r1-b8-soak03'
+        self.run_id='sub2api-r1-b8-soak05'
         self.memory=[{'elapsed_s':i, 'baseline':{'VmRSS':100000000}, 'candidate':{'VmRSS':100000000}} for i in range(0,7501,30)]
         self.series={v:{k:[50.0]*72000 for k in ['stream','nonstream']} for v in ['baseline','candidate']}
         self.env={'network':{'internal':True},'controller_sha256':HARNESS['run.py'],'agent_sha256':HARNESS['load_agent.cjs'],'fixture_sha256':HARNESS['fake_upstream.cjs'],'tracker_sha256':HARNESS['duplicate_tracker.cjs'],'apps':{'baseline':{'image':BASELINE},'candidate':{'image':CANDIDATE}}}

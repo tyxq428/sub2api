@@ -21,6 +21,8 @@ BASELINE = 'local/sub2api-r1-baseline@sha256:8af502b156cecdbb6f9469d604776c540ae
 CANDIDATE = 'local/sub2api-r1@sha256:ed414eb7c1896506c1a7ab009ff3cfdca3857a9de366776e746be95b1f555a85'
 HARNESS = {'run.py': 'd5b3baf318cea8596137797aaf5721ed49d0973fc70cf0dd0c2b17712b085f60', 'load_agent.cjs': '61b5a329378d52257e7782641afe30ea67896d2994379318d68e5b0a35fe9596', 'fake_upstream.cjs': 'cff43063aeea46844f473c4960d94ef239feb4da7a7db932b2a2c3b233f67980', 'duplicate_tracker.cjs': '30511bdb5531a1be2e7176122df0b4c35e34c85f2525c14edef250d9178fc839'}
 SECONDS, WARMUP, RPS = 7200, 300, 20
+FINAL_RUN_ID = 'sub2api-r1-b8-soak05'
+FINAL_RUN_DIR = 'fullimage-soak05'
 
 class VerificationError(ValueError):
     """A required result is absent, inconsistent, or outside the approved gate."""
@@ -90,7 +92,7 @@ def verify_soak(result: dict, memory: list, series: dict, environment: dict) -> 
     require(upstream.get('memory', {}).get('heapUsed', 2**31) < 128*1024*1024, 'fake V8 heap exceeds bounded-harness gate')
     require(upstream['requests'] == sum(v['requests'] for v in result['variants'].values()) + 20, 'upstream/client request counts differ')
     run_id = result['run_id']
-    require(run_id == 'sub2api-r1-b8-soak03', 'unrecognized run identity')
+    require(run_id == FINAL_RUN_ID, 'unrecognized run identity')
     expected_names = {run_id, run_id+'-fake', run_id+'-load'} | {run_id+'-'+v+'-'+s for v in ['baseline','candidate'] for s in ['app','db','redis']}
     cleanup = result.get('cleanup', [])
     require(len(cleanup) == 9 and {x['name'] for x in cleanup} == expected_names and all(x.get('removed') is True for x in cleanup), 'resource cleanup evidence incomplete')
@@ -102,10 +104,10 @@ def verify_soak(result: dict, memory: list, series: dict, environment: dict) -> 
     return {'passed':True, 'source_commit':SOURCE, 'run_id':run_id, 'actual_elapsed_s':result['actual_elapsed_s'], 'recomputed':computed, 'degradation_pct':degradation, 'limitations':['API-key HTTP/SSE full-image workload, not OAuth/WS load','Official v0.2.5 source rebuilt with pinned images, not an official registry binary','No live A/C or TLS/JA3 equivalence claim']}
 
 def verify_directory(root: Path) -> dict:
-    soak = root / 'fullimage-soak03'
+    soak = root / FINAL_RUN_DIR
     result = load(soak/'result.json')
     report = verify_soak(result, load(soak/'memory.json'), {v:load(soak/(v+'-latencies.json')) for v in ['baseline','candidate']}, load(soak/'environment.json'))
-    require(load(root/'fullimage-soak03-driver-result.json')['exit'] == 0, 'driver did not exit successfully')
+    require(load(root/(FINAL_RUN_DIR+'-driver-result.json'))['exit'] == 0, 'driver did not exit successfully')
     for name, expected in HARNESS.items():
         require(digest(root/'fullimage-harness-v3'/name) == expected, 'persisted harness file changed')
     for prefix in ['linux-full-unit-release3','linux-race-release3']:

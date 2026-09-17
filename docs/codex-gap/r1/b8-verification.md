@@ -1,129 +1,158 @@
 # R1 B8 — final Linux, image and workload acceptance
 
-B8 status: RUNNING
+B8 status: PASSED
 
-The final two-hour workload is still running. This is a progress record, **not** a
-completed B8 verdict. Replace this status only after the actual terminal result,
-independent raw-data verification, delivery commit/push and package checks.
+R1 B8 is closed for the fixed candidate image built from product source commit
+`8905cbb82d4bad011eddae5e83228f52906c4b40`. The acceptance workload used only
+synthetic credentials and a fake upstream. It made **0 real model requests**.
+No main-branch merge or production deployment/change is part of this result.
 
-## Source and scope
+## Identity and scope
 
-Candidate source: `8905cbb82d4bad011eddae5e83228f52906c4b40`.
-Production-code parent: `da35837051c0a3a87eb49b12cf3882850b7539e3`.
-The two later commits `3279bdbab...` and `8905cbb82...` fix old test fixtures that
-read zstd wire bytes as JSON; they do not change the production forwarding logic.
-The previous conversation handoff missed those commits and is superseded here.
+- Repository: `E:\Apps\sub2api-worktrees\codex-gap-v1`
+- Delivery branch: `feature/codex-gap-v1`
+- Product image source: `8905cbb82d4bad011eddae5e83228f52906c4b40`
+- Candidate image: `sha256:ed414eb7c1896506c1a7ab009ff3cfdca3857a9de366776e746be95b1f555a85`
+- Baseline: unmodified official `v0.2.5` source rebuilt with the same pinned build inputs,
+  `sha256:8af502b156cecdbb6f9469d604776c540ae501995094f9d8a50bb08f4bd42611`
+- Frozen final harness source commit: `f0d90f5bb794d46cc9c4842ca8c366f8fe618ff0`
+- Final accepted run: `sub2api-r1-b8-soak05`
 
-Repository: `E:\Apps\sub2api-worktrees\codex-gap-v1`.
-Branch: `feature/codex-gap-v1`.
-Task: `task_Wp1FXYEsm1bgOYAX9YEI` (`mcp-manager` is only a command entry).
-Only B8 is continued. P0/B3–B7 are not rerun. Main is not merged and production,
-Nginx, databases, accounts and Manager/Gateway code are not changed.
+The later delivery commit contains only B8 tooling/documentation. It is **not** the
+source of the candidate image; the binary/image remains tied to `8905cbb82d4b...`.
 
-Documentation/external harness commits after the source commit are not relabeled
-as image source. The final delivery manifest records product and documentation
-commits separately and rejects product-tree differences after image construction.
+## Earlier B8 gates retained without rerun
 
-## Recovered jobs and retained evidence
+P0 and B3–B7 were not rerun during this closeout.
 
-The three requested old handles are now `lost`, not successful active jobs:
-`job_Xl65ho3lTeSE_bvHGCrZ`, `job_dHB_s5dKSnL_W6Z7N4K1`, and
-`job_hIezPNyCMhni6QS5inpB`. Their bounded logs were inspected; later successful
-release3 outputs already supersede the unfinished older snapshot/fixture work.
-No duplicate B8 Linux suite or image build was started for the candidate.
+| Gate | Result |
+| --- | --- |
+| Full Linux unit-tag suite | 10,890 top-level tests + 9,062 subtests, 57 packages, exit 0 |
+| Required original gate | 67/67 ran and passed; none missing or skipped |
+| Critical Linux race selection | 211/211 required top-level + 235 subtests; 0 race warnings/failures/skipped-required |
+| Candidate archive/build identity | 3,985 regular files checked; 0 mismatches |
+| Fresh PG/Redis runtime | Health OK; 100 tables, 1 synthetic admin, 0 accounts; internal network |
+| Candidate image/export | Digest, version, binary and Docker tar identities verified |
+| Verifier unit suite after final-run binding | 20/20 passed |
 
-The retained results are under `D:\Temp\sub2api-build\r1`.
-`job_7_Vy9LLx_5NEtGt6KFJG` rechecked full/race raw-log hashes.
-`job_0WDhayXGnNfqxvbXWiRj` independently rechecked source/build files, actual test
-execution and candidate export identity. Both completed with exit code 0.
+## Infrastructure-invalid runs
 
-| Gate | Observed result | Evidence |
-| --- | --- | --- |
-| Full Linux unit-tag suite | 10,890 top-level tests + 9,062 subtests; 57 packages; exit 0 | `linux-full-unit-release3-result.json` and raw JSONL |
-| Required current gate | 67/67 actually ran and passed; none missing or skipped | Full-suite result |
-| Additional R1-named-file audit | 38/38 test functions independently found in raw run/pass events | `b8-release-evidence-reverified.json` |
-| Critical Linux race selection | 211/211 required top-level + 235 subtests; 0 race warnings, failures or skipped-required | `linux-race-release3-result.json` and raw JSONL |
-| Archive/build identity | 3,985 regular files checked; 0 mismatches | Reverified evidence |
-| Full frontend image | Built and version/commit/digest checked | `candidate-release-metadata.json`, `candidate-release-inspect.json` |
-| Fresh PG/Redis runtime | Health OK; 100 tables, 1 synthetic admin, 0 accounts; HTML and JS served; internal network | `candidate-runtime-release-result.json` |
-| Full-image HTTP/SSE short smoke | Passed, exact 1,420 fake upstream requests; 0 errors/duplicates/invalid inputs; all 8 test resources removed | `fullimage-smoke01/result.json` |
-| Actual 2-hour measurement | RUNNING; not yet accepted | `fullimage-soak01/status.json` |
-| Independent verifier | 18 synthetic unit tests passed; actual running soak correctly rejected as incomplete | `b8-independent-verifier-unit-result.json` |
+`soak01`–`soak04` are retained as diagnostic evidence and are neither product
+passes nor product failures. In particular:
 
-The full unit-tag run has 67 skip events including 16 named skipped tests.
-The skipped names are preserved in `b8-release-evidence-reverified.json`, including
-live TLS/API and optional DB/Redis/plugin tests. This is not a claim that every
-integration or live test ran; **no required current gate was skipped**.
+- `soak02`: fake-upstream `Set<string>` grew without bound and caused a V8 heap OOM.
+  The fixed bitset tracker subsequently passed the 400,020-ID self-test, 120,001
+  HTTP/SSE stress test, and `smoke04`.
+- `soak03`: `host_interruption_invalid_run`; Windows Kernel-Power 109 initiated a
+  shutdown at 2026-09-16 07:38:43 -07:00 and the host restarted later. Evidence:
+  `b8-soak03-host-interruption.json`.
+- `soak04`: WSL lifecycle reclamation stopped the Linux VM even though systemd
+  services/containers were present. Evidence: `b8-soak04-wsl-lifecycle-invalid.json`.
 
-## Candidate image and export
+These runs never relax or substitute for the full-duration gate.
+
+## Final full-image workload — soak05
+
+Evidence root: `D:\Temp\sub2api-build\r1\fullimage-soak05`.
+
+The controller completed 300 seconds of warmup plus 7,200 seconds of measured
+traffic at 20 requests/second **per version**, using the real application HTTP
+`/v1/responses` path against a synthetic fake upstream. JSON and SSE alternate.
+Both images ran simultaneously with separate fresh PostgreSQL and Redis instances
+on an internal-only Docker network.
+
+Observed terminal values:
+
+| Metric | Baseline | Candidate | Candidate degradation |
+| --- | ---: | ---: | ---: |
+| Total requests (warmup + measured) | 150,000 | 150,000 | — |
+| Measured stream samples | 72,000 | 72,000 | — |
+| Stream P95 | 56.060265 ms | 56.172200 ms | +0.199669% |
+| Measured non-stream samples | 72,000 | 72,000 | — |
+| Non-stream P95 | 39.382082 ms | 39.650673 ms | +0.682013% |
+| Stable RSS median | 178,655,232 B | 177,852,416 B | -0.449366% |
+| Stable RSS observations | 120 | 120 | — |
+
+Additional terminal evidence:
+
+- Actual controller elapsed time: `7499.988082468` seconds.
+- Upstream requests: exactly `300020`, matching both clients plus the 20 setup probes.
+- Request errors: baseline `0`, candidate `0`.
+- Upstream duplicates: `0`; invalid inputs: `0`.
+- Fake duplicate tracker: 10 keys, 65,664 bytes; fake V8 heap used 8,206,328 bytes.
+- `real_model_requests`: `0`.
+- Raw memory window: 249 samples, first at 0.68 s, last at 7529.78 s.
+- Cleanup: all 9 owned resources removed; `cleanup_complete=true`.
+- Driver exit: `0`.
+- Internal-network evidence: true.
+
+Every controller gate is true: zero errors, no duplicates, valid inputs, exact
+upstream count, duration complete, sample count complete, both P95 gates, stable
+RSS gate, bounded fake tracker, and complete cleanup.
+
+## Frozen harness identity
+
+The accepted run's environment records and the persisted frozen directory both
+match these SHA-256 values:
+
+- `run.py`: `d5b3baf318cea8596137797aaf5721ed49d0973fc70cf0dd0c2b17712b085f60`
+- `load_agent.cjs`: `61b5a329378d52257e7782641afe30ea67896d2994379318d68e5b0a35fe9596`
+- `fake_upstream.cjs`: `cff43063aeea46844f473c4960d94ef239feb4da7a7db932b2a2c3b233f67980`
+- `duplicate_tracker.cjs`: `30511bdb5531a1be2e7176122df0b4c35e34c85f2525c14edef250d9178fc839`
+
+`fullimage-soak05-driver.sh` SHA-256:
+`1e284bc246f46dc88b1e2a4e7292f3cdc18474c48cd6e90b5dd59bd314e7f03b`.
+
+## Independent verification
+
+`tools/codex-r1-load/verify.py D:\Temp\sub2api-build\r1` independently rereads
+the raw latency, memory, environment, Linux-suite, race-suite, image export and
+source/archive evidence. The final-run selector was changed from the superseded
+`soak03` identity to the actual accepted `soak05` identity; no duration,
+performance, identity, cleanup, or safety threshold was weakened.
+
+The verifier passed and wrote `b8-independent-acceptance.json`. Recomputed results:
+
+- stream P95 degradation: `+0.1996690533%` (limit `<=10%`)
+- non-stream P95 degradation: `+0.6820132059%` (limit `<=10%`)
+- stable RSS degradation: `-0.4493660729%` (limit `<=20%`)
+- stream/non-stream samples: 72,000 each per version
+- stable RSS samples: 120 per version
+
+## Candidate release export
 
 - Tag: `local/sub2api-r1:sha-8905cbb82d4b`
-- Version: `0.2.5-r1.8905cbb82d4b`; platform: `linux/amd64`
-- Image digest: `sha256:ed414eb7c1896506c1a7ab009ff3cfdca3857a9de366776e746be95b1f555a85`
+- Version: `0.2.5-r1.8905cbb82d4b`
+- Platform: `linux/amd64`
+- Candidate digest: `sha256:ed414eb7c1896506c1a7ab009ff3cfdca3857a9de366776e746be95b1f555a85`
 - Binary SHA-256: `2a85591bcf9ee7efeb84b957555abdc19ed6f78ecf4ae9e0253734d8f1617f37`
-- Docker archive: `sub2api-r1-8905cbb82d4b.docker.tar`, 45,473,792 bytes
-- Archive SHA-256: `932b09eaf4359a1dc651b2367fabdecfbb116e29fed94407a48d6097ab2ff28f`
-- Source archive SHA-256: `cd41416445a74e22185e525700ea4ee8f5bb7b518f4f7b121fbfdafe76c339d2`
+- Docker tar: `sub2api-r1-8905cbb82d4b.docker.tar`
+- Docker tar bytes: `45,473,792`
+- Docker tar SHA-256: `932b09eaf4359a1dc651b2367fabdecfbb116e29fed94407a48d6097ab2ff28f`
+- Source tar SHA-256: `cd41416445a74e22185e525700ea4ee8f5bb7b518f4f7b121fbfdafe76c339d2`
+- `production_deployed=false`
 
-The image uses pinned Node, Go, Alpine and PostgreSQL base-image digests from
-`image-inputs-lock.json`. The actual binary reports the expected version/commit.
-The old `2e940cdb...` image is historical and is not the delivery candidate.
-No candidate image has been deployed to production or published as a production release.
+## Remote / CI / delivery boundary
 
-## Real full-image workload (pending terminal result)
+Before the final delivery commit, local HEAD and `origin/feature/codex-gap-v1`
+were both `f0d90f5bb794d46cc9c4842ca8c366f8fe618ff0`; `origin/main` was
+`30ed40a56a5f4b5ab7b8dd3d685353db3a531c84`.
 
-The old request-builder-only harness was rejected as insufficient: it never made
-an actual application-to-upstream request. The replacement uses the complete
-candidate and baseline application images, actual HTTP ingress, authentication,
-scheduling, forwarding, billing and response handling with separate fresh databases.
+GitHub Actions returned **0 workflow runs** for the feature branch. This is
+recorded as **CI not observed**, not as a green CI result. The post-push readback
+is saved in `b8-git-final.json` and `b8-remote-ci-final.json` inside the local
+acceptance evidence/package.
 
-Baseline: official `v0.2.5` source `86f93c28ee34cc74b629dafb748bd5ac5ca8c5ea`,
-unmodified, rebuilt with the same pinned base images. Baseline image digest:
-`sha256:8af502b156cecdbb6f9469d604776c540ae501995094f9d8a50bb08f4bd42611`.
-This is a source-controlled rebuild, not a claim of using an official registry binary.
-Baseline build `job_May3XLYbCAXQ9p_BBNpE` completed with exit code 0.
+No force push is used. Main is not merged. No production Nginx, database,
+account, Manager/Gateway, or runtime deployment change is authorized or performed.
 
-Run `sub2api-r1-b8-soak01`, durable job `job_n0okoG6TnqkKTNrOLjax`:
-300 seconds warmup + **7,200 seconds measured**, 20 requests/second per variant,
-four clients per variant, 4 KiB synthetic inputs, alternating JSON and SSE.
-Current estimated measurement finish: **2026-09-16T11:59:38.531890+00:00**, subject to actual termination
-and cleanup. A one-time scheduled continuation collects the result afterward;
-a conversation interruption must not restart this workload.
+## Limitations
 
-All seven containers use a labeled internal-only network and no published ports.
-The baseline/candidate have separate PG/Redis data. Only synthetic credentials and
-API-key accounts exist. No real model calls are made. Test resources have strict
-CPU/memory limits, bounded logs and run-label-checked cleanup.
+This B8 workload is an API-key HTTP/SSE full-image test, not a full-image OAuth/zstd
+or WebSocket load test, not a maximum-throughput test, and not a TTFT benchmark.
+Earlier contract/race evidence retains its separate scope. No live A/C parity,
+TLS/ALPN/JA3 equality, account-risk reduction, or account-safety guarantee is
+claimed.
 
-Acceptance requires actual complete duration and samples, zero errors and duplicate
-upstream requests, exact client/upstream count reconciliation, both JSON and SSE
-P95 degradation <=10%, stable app RSS degradation <=20%, and complete cleanup.
-`tools/codex-r1-load/verify.py` independently recomputes the metrics from raw data,
-checks identities/hashes, and refuses short/partial runs. No threshold is relaxed.
-The smoke numbers are explicitly not the two-hour performance verdict.
-
-## Remote/CI status and limits
-
-At the pre-close readback (`b8-remote-ci-preclose.json`), origin feature was exactly
-`8905cbb82d4bad011eddae5e83228f52906c4b40`; main remained
-`30ed40a56a5f4b5ab7b8dd3d685353db3a531c84`. GitHub Actions query returned HTTP 200
-with **0 runs**, which is recorded as no CI observation, not a green CI result.
-Fresh remote readback is required after the final delivery commit.
-
-B4 ended with 7/12 baseline slots used and no successful fresh official live A;
-its stop rule remains in force and candidate real requests remain 0/12. There are
-no new real-account requests in B8. No live A/C parity, exact TLS/ALPN/JA3 equality,
-account-risk reduction or account safety guarantee is claimed.
-
-The workload is **API-key HTTP/SSE**, not a full-image OAuth/zstd or WS load test,
-not a maximum-throughput test, and not a time-to-first-token benchmark. Earlier
-contract/race evidence retains its separate, expressly limited scope.
-
-## Remaining B8 closure
-
-Read the running job's existing result; do not rerun B3–B7 or restart soak01.
-After all actual workload gates pass, independently verify, finish this report and
-`final-summary.md`, commit/push only feature documentation/harness updates, verify
-remote feature/main and CI availability, create the allowlisted ZIP with hashes,
-and then clear B8 pending work and mark the durable task completed.
-B9/main merge and any production changes remain outside this authorization.
+B4 had already reached its 7/12 baseline stop rule; B8 issued no new real-account
+or real-model request.

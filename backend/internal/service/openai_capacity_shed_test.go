@@ -29,9 +29,9 @@ func (r *capacityShedAccountRepoStub) SetTempUnschedulable(_ context.Context, _ 
 	return nil
 }
 
-// 上游容量降载是请求级信号：故障因素（客户端身份、模型容量）与账号无关，
-// 同账号重试用尽后不得把账号临时摘掉——否则一个被降载的请求会顺着 failover
-// 把整池账号逐个封禁，而每个账号都会以同一个错误失败。
+// 单次上游容量降载仍是请求级信号。同账号重试用尽后不得写持久临时封禁，
+// 否则一个被降载的请求会顺着 failover 把整池账号逐个封禁。重复命中的
+// account+model 由独立的内存 transient breaker 处理。
 func TestTempUnscheduleRetryableErrorSkipsRequestScopedTransient(t *testing.T) {
 	t.Run("请求级瞬时故障不写账号状态", func(t *testing.T) {
 		repo := &capacityShedAccountRepoStub{}
@@ -103,9 +103,105 @@ func TestOpenAIHTTPCapacityShedIsRequestScopedForOAuthAccounts(t *testing.T) {
 		http.StatusBadRequest,
 		nil,
 		payload,
-		"gpt-5",
+		"gpt-5.6-sol",
 	))
+	require.False(t, gateway.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-sol"))
+	require.False(t, gateway.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadRequest,
+		nil,
+		payload,
+		"gpt-5.6-sol",
+	))
+	require.False(t, gateway.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-sol"), "internal retries must not build an account-health streak")
+	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account))
 	require.Zero(t, repo.tempUnschedCalls)
+}
+
+func TestOpenAIHTTPCapacityShedAPIKeyKeepsExistingRequestScopedBehavior(t *testing.T) {
+	payload := []byte(`{"error":{"type":"server_error","message":"Our servers are currently overloaded. Please try again later."}}`)
+	gateway := &OpenAIGatewayService{}
+	account := &Account{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	for range 2 {
+		require.False(t, gateway.handleOpenAIAccountUpstreamError(
+			context.Background(), account, http.StatusBadRequest, nil, payload, "gpt-5.6-sol",
+		))
+	}
+
+	require.False(t, gateway.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-sol"))
+	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account))
+}
+
+func TestOpenAIStreamCapacityShedRemainsRequestScopedUntilRetryExhausted(t *testing.T) {
+	payload := []byte(`{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}}`)
+	gateway := &OpenAIGatewayService{}
+	account := &Account{ID: 7, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	for range 2 {
+		status, disabled := gateway.handleOpenAIStreamTerminalAccountSideEffects(nil, account, payload, "overloaded", nil, "gpt-5.6-sol")
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		require.False(t, disabled)
+	}
+
+	require.False(t, gateway.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-sol"))
+	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account))
+}
+
+func TestReportOpenAICapacityShedRetryExhausted_CoolsOAuthAfterTwoLogicalRequests(t *testing.T) {
+	payload := []byte(`{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}`)
+	failoverErr := newOpenAIUpstreamFailoverError(
+		http.StatusBadRequest,
+		nil,
+		payload,
+		"Our servers are currently overloaded. Please try again later.",
+		false,
+	)
+	repo := &capacityShedAccountRepoStub{}
+	rateLimitService := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	gateway := &OpenAIGatewayService{rateLimitService: rateLimitService}
+	account := &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	gateway.ReportOpenAICapacityShedRetryExhausted(account, "gpt-5.6-sol", failoverErr)
+	require.False(t, gateway.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-sol"))
+	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account))
+
+	gateway.ReportOpenAICapacityShedRetryExhausted(account, "gpt-5.6-sol", failoverErr)
+	require.True(t, gateway.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-sol"))
+	require.True(t, gateway.isOpenAIAccountRuntimeBlocked(account), "two exhausted logical requests should cool the whole OAuth account briefly")
+	require.Zero(t, repo.tempUnschedCalls)
+}
+
+func TestReportOpenAICapacityShedRetryExhausted_SuccessBreaksTheStreak(t *testing.T) {
+	payload := []byte(`{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}`)
+	failoverErr := newOpenAIUpstreamFailoverError(http.StatusBadRequest, nil, payload, "overloaded", false)
+	gateway := &OpenAIGatewayService{}
+	account := &Account{ID: 4, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	gateway.ReportOpenAICapacityShedRetryExhausted(account, "gpt-5.6-sol", failoverErr)
+	gateway.ReportOpenAIAccountScheduleResult(account, "gpt-5.6-sol", true, nil)
+	gateway.ReportOpenAICapacityShedRetryExhausted(account, "gpt-5.6-sol", failoverErr)
+
+	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account))
+	require.False(t, gateway.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-sol"))
+}
+
+func TestReportOpenAICapacityShedRetryExhausted_IgnoresAPIKeyAndNonCapacity(t *testing.T) {
+	payload := []byte(`{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}`)
+	capacityErr := newOpenAIUpstreamFailoverError(http.StatusBadRequest, nil, payload, "overloaded", false)
+	gateway := &OpenAIGatewayService{}
+	apiKey := &Account{ID: 5, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	oauth := &Account{ID: 6, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	nonCapacity := &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(`{"error":"bad gateway"}`)}
+
+	for range 2 {
+		gateway.ReportOpenAICapacityShedRetryExhausted(apiKey, "gpt-5.6-sol", capacityErr)
+		gateway.ReportOpenAICapacityShedRetryExhausted(oauth, "gpt-5.6-sol", nonCapacity)
+	}
+
+	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(apiKey))
+	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(oauth))
 }
 
 // 上游降载的真实序列是「event: error → event: response.failed」。error 帧不算

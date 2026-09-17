@@ -100,8 +100,11 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if s != nil {
 		scheduleOllamaCloudUsageActivity(s.deferredService, account)
 	}
-	// Capacity shedding describes this request, not account health. Keep the
-	// account schedulable while the request-local retry budget handles recovery.
+	// Capacity shedding remains request-scoped here. Same-request retry attempts
+	// must not count as independent account-health failures, otherwise one logical
+	// request can manufacture a failure streak and walk the whole pool. The
+	// handler reports one logical failure only after that account's same-account
+	// retry budget is exhausted (ReportOpenAICapacityShedRetryExhausted).
 	if account != nil && account.Platform == PlatformOpenAI && isOpenAIRequestScopedCapacityShed("", responseBody) {
 		return false
 	}
@@ -241,6 +244,33 @@ func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context
 	}
 	s.BlockAccountScheduling(account, cooldownUntil, "429")
 	s.openaiOAuth429RetryStartedAt.Delete(account.ID)
+}
+
+// ReportOpenAICapacityShedRetryExhausted records capacity shedding at the
+// logical-request boundary. Callers invoke it only after the selected account's
+// same-account retry budget has been exhausted. A single exhausted request only
+// establishes a streak; the second consecutive exhausted request installs the
+// existing short account-wide runtime block. No durable account state is
+// changed, so a process restart cannot leave the account disabled.
+func (s *OpenAIGatewayService) ReportOpenAICapacityShedRetryExhausted(account *Account, model string, failoverErr *UpstreamFailoverError) {
+	if s == nil || !isOpenAIOAuthAccount(account) || failoverErr == nil || !failoverErr.IsOpenAICapacityShed() {
+		return
+	}
+
+	now := time.Now()
+	decision := s.recordOpenAIAccountModelTransientFailure(account, model, now)
+	accountCooldown := time.Duration(0)
+	if decision.FailureStreak >= 2 {
+		accountCooldown = openAIStopSchedulingBridgeCooldown
+		s.BlockAccountScheduling(account, now.Add(accountCooldown), "openai_capacity_shed_repeated")
+	}
+	slog.Warn("openai_capacity_shed_logical_request_exhausted",
+		"account_id", account.ID,
+		"model", openAIAccountModelTransientModel(model),
+		"failure_streak", decision.FailureStreak,
+		"model_cooldown_ms", decision.Cooldown.Milliseconds(),
+		"account_cooldown_ms", accountCooldown.Milliseconds(),
+	)
 }
 
 func (s *OpenAIGatewayService) shouldRetryOpenAIOAuth429OnSameAccount(account *Account, statusCode int, shouldDisable bool) bool {

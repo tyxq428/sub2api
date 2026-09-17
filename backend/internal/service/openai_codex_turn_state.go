@@ -1,11 +1,15 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 )
 
@@ -14,6 +18,76 @@ import (
 // /responses SSE、/responses/compact JSON 与 WS 握手三种响应中捕获，见
 // codex-api/src/sse/responses.rs 与 endpoint/compact.rs）。
 const openAICodexTurnStateHeader = "x-codex-turn-state"
+
+const (
+	openAICodexTurnStateDebugEnv          = "SUB2API_DEBUG_CODEX_TURN_STATE"
+	openAICodexTurnStateDebugAccountIDEnv = "SUB2API_DEBUG_CODEX_TURN_STATE_ACCOUNT_ID"
+)
+
+var (
+	openAICodexTurnStateDebugEnabled   = parseDebugEnvBool(os.Getenv(openAICodexTurnStateDebugEnv))
+	openAICodexTurnStateDebugAccountID = parseOpenAICodexTurnStateDebugAccountID(os.Getenv(openAICodexTurnStateDebugAccountIDEnv))
+)
+
+// openAICodexTurnStateDebugObservation is deliberately non-reversible: the
+// opaque upstream state is never stored on the observation or written to logs.
+// Length is useful for the 292/312 routing investigation; SHA-256 lets an
+// operator compare equality without exposing the credential-like blob itself.
+type openAICodexTurnStateDebugObservation struct {
+	length int
+	sha256 string
+}
+
+func observeOpenAICodexTurnStateDebug(upstream http.Header) (openAICodexTurnStateDebugObservation, bool) {
+	state := extractOpenAICodexTurnState(upstream)
+	if state == "" {
+		return openAICodexTurnStateDebugObservation{}, false
+	}
+	sum := sha256.Sum256([]byte(state))
+	return openAICodexTurnStateDebugObservation{
+		length: len(state),
+		sha256: hex.EncodeToString(sum[:]),
+	}, true
+}
+
+// debugOpenAICodexTurnStateEnabledForAccount fails closed unless both the
+// explicit debug switch and a valid single-account scope are supplied. This
+// avoids accidentally fingerprinting turn-state values for every production
+// account if the debug switch is enabled without its scope.
+func parseOpenAICodexTurnStateDebugAccountID(raw string) int64 {
+	debugAccountID, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || debugAccountID <= 0 {
+		return 0
+	}
+	return debugAccountID
+}
+
+func debugOpenAICodexTurnStateEnabledForAccount(account *Account) bool {
+	return account != nil && account.ID > 0 && openAICodexTurnStateDebugEnabled && openAICodexTurnStateDebugAccountID == account.ID
+}
+
+// logOpenAICodexTurnStateDebug records only a one-way digest and length of the
+// upstream state. It is called immediately after receiving an HTTP response so
+// both successful and >=400 attempts are observable before retry/failover.
+func (s *OpenAIGatewayService) logOpenAICodexTurnStateDebug(account *Account, model string, statusCode int, upstream http.Header) {
+	if !debugOpenAICodexTurnStateEnabledForAccount(account) {
+		return
+	}
+	observation, ok := observeOpenAICodexTurnStateDebug(upstream)
+	if !ok {
+		return
+	}
+	logger.LegacyPrintf(
+		"service.openai_gateway",
+		"[CodexTurnStateDebug] account=%d model=%s status=%d request_id=%s state_len=%d state_sha256=%s",
+		account.ID,
+		strings.TrimSpace(model),
+		statusCode,
+		strings.TrimSpace(upstream.Get("x-request-id")),
+		observation.length,
+		observation.sha256,
+	)
+}
 
 // turn-state blob 是上游在"出站身份"（含 #5553 指纹收敛改写后的
 // installation/session/thread 标识）下铸造的，同账号回放自洽；跨账号回放

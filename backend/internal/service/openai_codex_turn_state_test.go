@@ -43,6 +43,64 @@ func TestOpenAICodexTurnStateSeed(t *testing.T) {
 	require.Empty(t, openAICodexTurnStateSeed(nil))
 }
 
+func TestObserveOpenAICodexTurnStateDebug(t *testing.T) {
+	t.Run("missing_state", func(t *testing.T) {
+		observation, ok := observeOpenAICodexTurnStateDebug(http.Header{})
+		require.False(t, ok)
+		require.Zero(t, observation.length)
+		require.Empty(t, observation.sha256)
+	})
+
+	t.Run("length_and_digest_only", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("x-codex-turn-state", "blob-A")
+		observation, ok := observeOpenAICodexTurnStateDebug(h)
+		require.True(t, ok)
+		require.Equal(t, 6, observation.length)
+		require.Equal(t, "a3ff50e30ca808ab0b00bae991746abb7455e79ad2a34eb870c8b6c93129a476", observation.sha256)
+	})
+}
+
+func TestDebugOpenAICodexTurnStateEnabledForAccount_FailsClosed(t *testing.T) {
+	previousEnabled := openAICodexTurnStateDebugEnabled
+	previousAccountID := openAICodexTurnStateDebugAccountID
+	t.Cleanup(func() {
+		openAICodexTurnStateDebugEnabled = previousEnabled
+		openAICodexTurnStateDebugAccountID = previousAccountID
+	})
+	account := &Account{ID: 8}
+
+	t.Run("debug_disabled", func(t *testing.T) {
+		openAICodexTurnStateDebugEnabled = false
+		openAICodexTurnStateDebugAccountID = 8
+		require.False(t, debugOpenAICodexTurnStateEnabledForAccount(account))
+	})
+
+	t.Run("scope_missing", func(t *testing.T) {
+		openAICodexTurnStateDebugEnabled = true
+		openAICodexTurnStateDebugAccountID = parseOpenAICodexTurnStateDebugAccountID("")
+		require.False(t, debugOpenAICodexTurnStateEnabledForAccount(account))
+	})
+
+	t.Run("scope_invalid", func(t *testing.T) {
+		openAICodexTurnStateDebugEnabled = true
+		openAICodexTurnStateDebugAccountID = parseOpenAICodexTurnStateDebugAccountID("all")
+		require.False(t, debugOpenAICodexTurnStateEnabledForAccount(account))
+	})
+
+	t.Run("scope_mismatch", func(t *testing.T) {
+		openAICodexTurnStateDebugEnabled = true
+		openAICodexTurnStateDebugAccountID = parseOpenAICodexTurnStateDebugAccountID("9")
+		require.False(t, debugOpenAICodexTurnStateEnabledForAccount(account))
+	})
+
+	t.Run("scope_matches", func(t *testing.T) {
+		openAICodexTurnStateDebugEnabled = true
+		openAICodexTurnStateDebugAccountID = parseOpenAICodexTurnStateDebugAccountID("8")
+		require.True(t, debugOpenAICodexTurnStateEnabledForAccount(account))
+	})
+}
+
 func TestRelayOpenAICodexTurnState_SetsHeaderAndRecordsProvenance(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 42}

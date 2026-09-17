@@ -150,6 +150,7 @@ func TestOpenAIStreamCapacityShedRemainsRequestScopedUntilRetryExhausted(t *test
 }
 
 func TestReportOpenAICapacityShedRetryExhausted_CoolsOAuthAfterTwoLogicalRequests(t *testing.T) {
+	t.Setenv(openAICapacityShedCooldownAccountIDEnv, "2")
 	payload := []byte(`{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}`)
 	failoverErr := newOpenAIUpstreamFailoverError(
 		http.StatusBadRequest,
@@ -174,6 +175,7 @@ func TestReportOpenAICapacityShedRetryExhausted_CoolsOAuthAfterTwoLogicalRequest
 }
 
 func TestReportOpenAICapacityShedRetryExhausted_SuccessBreaksTheStreak(t *testing.T) {
+	t.Setenv(openAICapacityShedCooldownAccountIDEnv, "4")
 	payload := []byte(`{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}`)
 	failoverErr := newOpenAIUpstreamFailoverError(http.StatusBadRequest, nil, payload, "overloaded", false)
 	gateway := &OpenAIGatewayService{}
@@ -188,6 +190,7 @@ func TestReportOpenAICapacityShedRetryExhausted_SuccessBreaksTheStreak(t *testin
 }
 
 func TestReportOpenAICapacityShedRetryExhausted_IgnoresAPIKeyAndNonCapacity(t *testing.T) {
+	t.Setenv(openAICapacityShedCooldownAccountIDEnv, "6")
 	payload := []byte(`{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}`)
 	capacityErr := newOpenAIUpstreamFailoverError(http.StatusBadRequest, nil, payload, "overloaded", false)
 	gateway := &OpenAIGatewayService{}
@@ -202,6 +205,42 @@ func TestReportOpenAICapacityShedRetryExhausted_IgnoresAPIKeyAndNonCapacity(t *t
 
 	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(apiKey))
 	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(oauth))
+}
+
+func TestReportOpenAICapacityShedRetryExhausted_CanaryScopeOnlySelectedAccount(t *testing.T) {
+	t.Setenv(openAICapacityShedCooldownAccountIDEnv, "8")
+	payload := []byte(`{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}`)
+	capacityErr := newOpenAIUpstreamFailoverError(http.StatusBadRequest, nil, payload, "overloaded", false)
+	gateway := &OpenAIGatewayService{}
+	account7 := &Account{ID: 7, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	account8 := &Account{ID: 8, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	for range 2 {
+		gateway.ReportOpenAICapacityShedRetryExhausted(account7, "gpt-5.6-sol", capacityErr)
+	}
+	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account7), "non-canary account must retain existing scheduling behavior")
+	require.False(t, gateway.isOpenAIAccountModelRuntimeBlocked(account7, "gpt-5.6-sol"))
+
+	gateway.ReportOpenAICapacityShedRetryExhausted(account8, "gpt-5.6-sol", capacityErr)
+	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account8))
+	gateway.ReportOpenAICapacityShedRetryExhausted(account8, "gpt-5.6-sol", capacityErr)
+	require.True(t, gateway.isOpenAIAccountRuntimeBlocked(account8), "selected canary account should receive repeated capacity-shed cooldown")
+}
+
+func TestOpenAICapacityShedCooldownCanaryScopeFailsClosed(t *testing.T) {
+	account8 := &Account{ID: 8, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	for _, raw := range []string{"", "0", "invalid", "7"} {
+		t.Run(raw, func(t *testing.T) {
+			t.Setenv(openAICapacityShedCooldownAccountIDEnv, raw)
+			require.False(t, openAICapacityShedCooldownEnabledForAccount(account8))
+		})
+	}
+
+	t.Run("selected", func(t *testing.T) {
+		t.Setenv(openAICapacityShedCooldownAccountIDEnv, "8")
+		require.True(t, openAICapacityShedCooldownEnabledForAccount(account8))
+	})
 }
 
 // 上游降载的真实序列是「event: error → event: response.failed」。error 帧不算

@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +21,12 @@ const (
 	openAIStopSchedulingBridgeCooldown    = 2 * time.Minute
 	openAIOAuth429StormWindow             = 10 * time.Second
 	openAIOAuth429StormMaxAccountSwitches = 1
+
+	// Fail closed for production canaries: the repeated capacity-shed account
+	// cooldown is disabled unless one exact OpenAI account id is explicitly
+	// selected. This lets operators observe a single account without changing
+	// scheduling behavior for the rest of the pool.
+	openAICapacityShedCooldownAccountIDEnv = "SUB2API_OPENAI_CAPACITY_SHED_COOLDOWN_ACCOUNT_ID"
 )
 
 // OpenAIOAuth429FailoverState tracks the request-local follow-up budget after
@@ -88,6 +96,18 @@ func isGrokOAuthAccount(account *Account) bool {
 
 func isOpenAIAccount(account *Account) bool {
 	return account != nil && (account.Platform == PlatformOpenAI || account.Platform == PlatformGrok)
+}
+
+func openAICapacityShedCooldownEnabledForAccount(account *Account) bool {
+	if account == nil || account.ID <= 0 {
+		return false
+	}
+	raw := strings.TrimSpace(os.Getenv(openAICapacityShedCooldownAccountIDEnv))
+	accountID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || accountID <= 0 {
+		return false
+	}
+	return account.ID == accountID
 }
 
 // handleOpenAIAccountUpstreamError expects canonicalModel to be the model used
@@ -253,7 +273,7 @@ func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context
 // existing short account-wide runtime block. No durable account state is
 // changed, so a process restart cannot leave the account disabled.
 func (s *OpenAIGatewayService) ReportOpenAICapacityShedRetryExhausted(account *Account, model string, failoverErr *UpstreamFailoverError) {
-	if s == nil || !isOpenAIOAuthAccount(account) || failoverErr == nil || !failoverErr.IsOpenAICapacityShed() {
+	if s == nil || !isOpenAIOAuthAccount(account) || !openAICapacityShedCooldownEnabledForAccount(account) || failoverErr == nil || !failoverErr.IsOpenAICapacityShed() {
 		return
 	}
 

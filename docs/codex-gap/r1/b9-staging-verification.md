@@ -15,8 +15,10 @@ not authorize a production rollout.
   access was restored: `b19af9b13990c43b3cff0c85d44de47a2cabd2732576fc966546ce997929e917`.
 - The product image still comes from `8905cbb82d4b...`; later feature commits
   contain staging support, CI plumbing, documentation, or test-only cleanup.
-- The latest code/support HEAD before this document refresh is
-  `7e1d7ed03437ef40cccc80da6d14ce7f8dd5d1c8`.
+- The authenticated-protocol closure was verified by CI on
+  `028fac5eac30d52857506b13c928f22952d2d8d9`. Later lifecycle-runner and
+  documentation commits remain test/support-only and do not rebuild the frozen
+  product image.
 - Remote `main` was freshly observed as
   `30ed40a56a5f4b5ab7b8dd3d685353db3a531c84`.
 - GitHub Actions is now observed. `workflow_dispatch` was added without
@@ -64,24 +66,30 @@ that the VPS service loaded it.
 
 ## Product protocol evidence
 
-Historical authenticated staging observations support HTTP JSON, SSE, and
-client-zstd ingress. The previous compact checks support HTTP 200 plus the
-expected summary and encrypted-content markers, but the response body was
-deleted by the original test script. Its `OUTPUT_COUNT=0` value was a grep
-pattern count rather than a parsed JSON array length. It cannot establish
-either a product failure or complete opaque-structure preservation.
+The authenticated protocol residual is now closed without exposing a client
+key to the external execution layer. A `unit` integration harness generates
+synthetic client/upstream keys with `crypto/rand` inside the Go test process and
+uses the real API-key middleware, `OpenAIGatewayHandler`, account scheduler,
+repository HTTP transport, and a real local WebSocket transport. No real model
+request is made.
 
-The following application end-to-end paths remain unobserved because the
-execution safety layer rejected new authenticated staging requests and those
-rejections were not bypassed:
+The harness verifies all previously missing branches:
 
-- upstream-zstd JSON and SSE;
-- successful WebSocket connection and subsequent turn;
-- continuation/retry behavior through the authenticated app path;
-- parsed compact opaque-structure preservation.
+- upstream-zstd JSON is decompressed by the concrete HTTP transport and reaches
+  the authenticated client as parsed response JSON;
+- upstream-zstd SSE is decompressed and emits exactly one synthetic
+  `response.completed` event;
+- `/responses/compact` preserves encrypted content, summary text, nested opaque
+  structure, and the exact raw representation of a >2^53 integer;
+- authenticated WebSocket first and second turns succeed;
+- the second turn sends a synthetic `previous_response_id`, receives
+  `previous_response_not_found`, reconnects exactly once, retries without the
+  missing continuation anchor, and returns a second completed response.
 
-Fixture-only WS/zstd/retry success and unauthenticated 401 responses are not
-substitutes for these product-path observations.
+CI run `35202176347` on `028fac5eac30d52857506b13c928f22952d2d8d9`
+completed **success** with `frontend`, `test`, `golangci-lint`, and `shell` all
+green. The `test` job includes this protocol harness. This is synthetic
+authenticated application-path evidence, not live OpenAI evidence.
 
 ## Lifecycle / rollback evidence
 
@@ -122,12 +130,25 @@ at the end of the successful restore, live production had 32 more rows than the
 snapshot across five tables. Live row-count equality is not a valid gate for an
 online logical backup.
 
-Not yet verified:
+The remaining release-gating lifecycle evidence is limited to a disposable
+application rehearsal: candidate cold recreation and a
+candidate -> previous-image -> candidate round trip with synthetic persistence
+and dependency/config continuity. Direct assistant execution of that rehearsal
+was blocked by the execution safety layer before any rehearsal resource was
+created; the blocked action was not retried through another syntax or tool.
 
-- complete staging application cold recreation;
-- candidate -> previous-image -> candidate application round trip;
-- host reboot qualification;
-- loading the refined relay revision.
+`tools/codex-r1-staging/rehearse_lifecycle.py` is the audited manual runner for
+this final gate. Its default mode is plan-only. Execution requires the literal
+`--execute --ack DISPOSABLE_ONLY`, refuses pre-existing rehearsal resources,
+uses exact frozen image IDs, creates an internal network with no host ports,
+generates secrets only in-process, snapshots production/current-staging core
+identities, and cleans only resources created by that invocation. The runner is
+not evidence until its JSON is independently read back with `passed: true`.
+
+Host-reboot qualification and loading the refined staging relay remain
+staging-support observability caveats. They are not part of the application
+candidate/rollback lifecycle criterion because production cutover does not use
+the staging relay; they must not be described as having been tested.
 
 ## Production boundary
 
@@ -159,5 +180,8 @@ release residual risks.
 - Second CI run (one remaining lint finding): `35195697013`.
 - Successful CI run on `7e1d7ed...`: `35196231446`, durable poll job
   `job_tWGqHmG-D_PFU3Su6eQ6`.
+- Authenticated protocol integration harness: changesets
+  `change_uN8YwsBNRVoU7qQppcTx` and `change_MXC2p9osP-1u-XT2Eikf`; successful
+  CI run `35202176347`, durable poll job `job_eqDs6ZsOi95ylxCbkgcc`.
 - Parent task: `task_Wp1FXYEsm1bgOYAX9YEI`.
 - Continuation task: `task_3sTpTF1TvzLkC2BK0-vN`.

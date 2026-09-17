@@ -82,7 +82,22 @@ It restored with `pg_restore --exit-on-error` returning 0 in a disposable
 `network=none` PostgreSQL instance with no published ports. Archive schema-only
 SQL normalized exactly to the contemporaneous production schema, including all
 80 foreign keys. See `docs/codex-gap/r1/b9-staging-verification.md` for the
-recovery caveats and remaining B9 protocol/lifecycle gaps.
+recovery caveats.
+
+The B9 authenticated-protocol residual was subsequently closed by a synthetic
+in-process integration harness using the real API-key middleware, gateway
+handler/scheduler, concrete zstd HTTP path, and real local WebSocket transport.
+CI run `35202176347` on `028fac5eac30...` passed all four jobs and covers
+upstream-zstd JSON/SSE, parsed compact opaque preservation, successful WS
+multi-turn, and one-time continuation recovery after
+`previous_response_not_found`. No real model request or account 8 was used.
+
+The sole remaining application release gate at this checkpoint is the
+disposable lifecycle rehearsal (candidate cold recreation and
+candidate -> previous -> candidate). Assistant-side execution was safety-blocked
+before mutation, so the reviewed manual runner must be executed once on the VPS
+and its non-sensitive `passed: true` JSON independently read back before B9 can
+be declared fully closed.
 
 No real model request was made in B8. The earlier B4 7/12 live-baseline stop rule
 remains respected.

@@ -23,3 +23,26 @@ systemd service. Do not treat the repository copy itself as runtime proof.
 
 No `.env`, client key, refresh token, production database content, or account
 8 credential is stored here.
+
+## B9 disposable lifecycle rehearsal
+
+`rehearse_lifecycle.py` is the audited runner for the final lifecycle gate. It
+defaults to plan-only mode and does not call Docker unless both `--execute` and
+`--ack DISPOSABLE_ONLY` are supplied. The execution path creates only
+`sub2api-r1-rehearsal-b9-*` resources on an internal Docker network with no
+published host ports, generates synthetic secrets in-process, and validates
+candidate startup, candidate cold recreation, previous-image startup, return to
+candidate, persistence/config continuity, unchanged production/current-staging
+core identities, and exact owned-resource cleanup.
+
+The assistant-side lifecycle execution was safety-blocked before mutation, so
+this script or its plan output is **not** lifecycle acceptance evidence by
+itself. The gate closes only after a human executes the reviewed runner on the
+VPS and its non-sensitive JSON result is independently read back with
+`passed: true`.
+
+Safe plan-only validation:
+
+```sh
+python3 tools/codex-r1-staging/rehearse_lifecycle.py --plan
+```

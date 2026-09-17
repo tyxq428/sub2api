@@ -619,7 +619,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	if c != nil && c.Request != nil {
 		for key, values := range c.Request.Header {
 			lower := strings.ToLower(strings.TrimSpace(key))
-			if !isOpenAIPassthroughAllowedRequestHeader(lower, allowTimeoutHeaders) {
+			if !isOpenAIPassthroughAllowedRequestHeader(lower, allowTimeoutHeaders, account) {
 				continue
 			}
 			for _, v := range values {
@@ -659,22 +659,22 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		}
 		apiKeyID := getAPIKeyIDFromContext(c)
 		// 先保存客户端原始值，再做 compact 补充，避免后续统一隔离时读到已处理的值。
-		clientSessionID := strings.TrimSpace(req.Header.Get("session-id"))
-		if clientSessionID == "" {
-			clientSessionID = strings.TrimSpace(req.Header.Get("session_id"))
+		clientSessionID := strings.TrimSpace(req.Header.Get("session_id"))
+		clientConversationID := strings.TrimSpace(req.Header.Get("conversation_id"))
+		if account.IsCodexR1CanaryEnabled() {
+			if hyphenated := strings.TrimSpace(req.Header.Get("session-id")); hyphenated != "" {
+				clientSessionID = hyphenated
+			}
+			if hyphenated := strings.TrimSpace(req.Header.Get("conversation-id")); hyphenated != "" {
+				clientConversationID = hyphenated
+			}
+			req.Header.Del("session-id")
+			req.Header.Del("conversation-id")
 		}
-		clientConversationID := strings.TrimSpace(req.Header.Get("conversation-id"))
-		if clientConversationID == "" {
-			clientConversationID = strings.TrimSpace(req.Header.Get("conversation_id"))
-		}
-		// Remove raw aliases before account scoping so they cannot diverge from
-		// the canonical isolated values projected below.
-		req.Header.Del("session-id")
-		req.Header.Del("conversation-id")
 		if isOpenAIResponsesCompactPath(c) {
 			req.Header.Set("accept", "application/json")
 			if req.Header.Get("version") == "" {
-				req.Header.Set("version", CodexCanonicalClientVersion())
+				req.Header.Set("version", CodexCanonicalClientVersionForAccount(account))
 			}
 			if clientSessionID == "" {
 				clientSessionID = resolveOpenAICompactSessionID(c)
@@ -683,7 +683,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 			req.Header.Set("accept", "text/event-stream")
 		}
 		if req.Header.Get("originator") == "" {
-			req.Header.Set("originator", resolveCodexOutboundIdentity("").originator)
+			req.Header.Set("originator", resolveCodexOutboundIdentityForAccount(account, "").originator)
 		}
 		// 用隔离后的 session 标识符覆盖客户端透传值，防止跨用户会话碰撞。
 		if clientSessionID == "" {
@@ -711,14 +711,16 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		req.Header.Set("user-agent", customUA)
 	}
 	if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
-		req.Header.Set("user-agent", CodexCanonicalUserAgent())
+		req.Header.Set("user-agent", CodexCanonicalUserAgentForAccount(account))
 	}
 	applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
-	if scoped := strings.TrimSpace(req.Header.Get("session_id")); scoped != "" {
-		req.Header.Set("session-id", scoped)
-	}
-	if scoped := strings.TrimSpace(req.Header.Get("conversation_id")); scoped != "" {
-		req.Header.Set("conversation-id", scoped)
+	if account.IsCodexR1CanaryEnabled() {
+		if scoped := strings.TrimSpace(req.Header.Get("session_id")); scoped != "" {
+			req.Header.Set("session-id", scoped)
+		}
+		if scoped := strings.TrimSpace(req.Header.Get("conversation_id")); scoped != "" {
+			req.Header.Set("conversation-id", scoped)
+		}
 	}
 
 	// 指纹收敛：使用 forwardOpenAIPassthrough 中预计算的收敛 ID 改写出站头，
@@ -728,7 +730,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	// 终态收口：透传路径的 OAuth 与非透传完全一致，同样强制统一出站身份
 	// （User-Agent / originator / version 同源自洽），客户端自报身份不会到达上游。
 	if account.UsesOpenAICodexProtocol() {
-		enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))
+		enforceCodexIdentityHeadersForAccount(req.Header, account, s.codexIdentityOverrideUA(account))
 	}
 
 	if req.Header.Get("content-type") == "" {
@@ -1008,8 +1010,11 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	return fmt.Errorf("upstream error: %d (client response sanitized)", resp.StatusCode)
 }
 
-func isOpenAIPassthroughAllowedRequestHeader(lowerKey string, allowTimeoutHeaders bool) bool {
+func isOpenAIPassthroughAllowedRequestHeader(lowerKey string, allowTimeoutHeaders bool, account *Account) bool {
 	if lowerKey == "" {
+		return false
+	}
+	if !allowOpenAIR1IngressHeader(account, lowerKey) {
 		return false
 	}
 	if isOpenAIPassthroughTimeoutHeader(lowerKey) {

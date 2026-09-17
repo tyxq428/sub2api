@@ -796,7 +796,8 @@ func (s *OpenAIGatewayService) buildOpenAIImagesRequest(
 		}
 	}
 	for key, values := range c.Request.Header {
-		if !openaiPassthroughAllowedHeaders[strings.ToLower(key)] {
+		lowerKey := strings.ToLower(key)
+		if !openaiPassthroughAllowedHeaders[lowerKey] || !allowOpenAIR1IngressHeader(account, lowerKey) {
 			continue
 		}
 		for _, value := range values {

@@ -23,6 +23,7 @@ func TestR1B5PassthroughUsesHyphenatedIngressSessionAliases(t *testing.T) {
 	account := &Account{
 		ID: 8008, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
 		Credentials: map[string]any{"chatgpt_account_id": "synthetic-account"},
+		Extra:       map[string]any{OpenAICodexR1CanaryExtraKey: true},
 	}
 	svc := &OpenAIGatewayService{}
 	req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, body, "synthetic-token")
@@ -52,6 +53,7 @@ func TestR1B5PassthroughPreservesConfiguredOfficialClientSurface(t *testing.T) {
 			c.Request.Header.Set("version", "9.9")
 			account := &Account{
 				ID: 8008, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+				Extra: map[string]any{OpenAICodexR1CanaryExtraKey: true},
 				Credentials: map[string]any{
 					"chatgpt_account_id": "synthetic-account",
 					"user_agent":         tt.ua,
@@ -61,16 +63,35 @@ func TestR1B5PassthroughPreservesConfiguredOfficialClientSurface(t *testing.T) {
 			req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, body, "synthetic-token")
 			require.NoError(t, err)
 			require.Equal(t, tt.originator, req.Header.Get("originator"))
-			require.Equal(t, CodexCanonicalClientVersion(), req.Header.Get("version"))
-			require.True(t, strings.HasPrefix(req.Header.Get("user-agent"), tt.originator+"/"+CodexCanonicalClientVersion()+" "), req.Header.Get("user-agent"))
+			require.Equal(t, CodexCanonicalClientVersionForAccount(account), req.Header.Get("version"))
+			require.True(t, strings.HasPrefix(req.Header.Get("user-agent"), tt.originator+"/"+CodexCanonicalClientVersionForAccount(account)+" "), req.Header.Get("user-agent"))
 			require.NotContains(t, req.Header.Get("user-agent"), "0.151.0")
 		})
 	}
 }
 
 func TestR1B5DefaultLinuxFallbackMatchesLockedReferenceEnvironment(t *testing.T) {
-	require.Equal(t, "0.154.0", codexCLIVersion)
-	ua := buildCodexCLIUserAgent(codexCLIVersion)
-	require.Contains(t, ua, "(Ubuntu 24.04.3; x86_64) xterm-256color")
-	require.NotContains(t, ua, "Ubuntu 22.4.0")
+	require.Equal(t, "0.146.0", codexCLIVersion)
+	legacyUA := buildCodexCLIUserAgent(codexCLIVersion)
+	require.Contains(t, legacyUA, "(Ubuntu 22.4.0; x86_64) xterm-256color")
+	canary := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{OpenAICodexR1CanaryExtraKey: true}}
+	require.Equal(t, "0.154.0", CodexCanonicalClientVersionForAccount(canary))
+	require.Contains(t, CodexCanonicalUserAgentForAccount(canary), "(Ubuntu 24.04.3; x86_64) xterm-256color")
+}
+
+func TestR1B5NonCanaryIgnoresHyphenatedIngressAliases(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gpt-5.6-sol","prompt_cache_key":"body-cache","input":"hello"}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("session-id", "r1-only-session")
+	c.Request.Header.Set("conversation-id", "r1-only-conversation")
+	account := &Account{ID: 8009, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Credentials: map[string]any{"chatgpt_account_id": "synthetic-account"}}
+	req, err := (&OpenAIGatewayService{}).buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, body, "synthetic-token")
+	require.NoError(t, err)
+	identitySource := codexAccountIdentitySource(c, account)
+	require.Equal(t, isolateOpenAIUpstreamSessionID(0, identitySource, "body-cache"), req.Header.Get("session_id"))
+	require.Empty(t, req.Header.Get("session-id"))
+	require.Empty(t, req.Header.Get("conversation-id"))
 }

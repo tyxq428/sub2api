@@ -34,11 +34,26 @@ func r1DecodeZstd(t *testing.T, compressed []byte) []byte {
 func r1CodexOAuthAccount() *Account {
 	return &Account{
 		ID: 8008, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		Extra: map[string]any{OpenAICodexR1CanaryExtraKey: true},
 		Credentials: map[string]any{
 			"chatgpt_account_id": "synthetic-account",
 			"access_token":       "synthetic-token",
 		},
 	}
+}
+
+func TestR1B7NonCanaryCodexAccountDoesNotEnableRequestCompression(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"gpt-5.6-sol","input":"hello","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	account := r1CodexOAuthAccount()
+	delete(account.Extra, OpenAICodexR1CanaryExtraKey)
+	req, err := (&OpenAIGatewayService{}).buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, body, "synthetic-token")
+	require.NoError(t, err)
+	require.Empty(t, req.Header.Get("Content-Encoding"))
+	require.Equal(t, body, r1ReadRequestBody(t, req))
 }
 
 func TestR1B7PassthroughResponsesCompressesCodexBackendAndPreservesBodyBytes(t *testing.T) {

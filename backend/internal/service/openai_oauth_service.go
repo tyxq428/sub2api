@@ -394,7 +394,7 @@ func (s *OpenAIOAuthService) RefreshAccountToken(ctx context.Context, account *A
 	}
 
 	clientID := account.GetCredential("client_id")
-	return s.RefreshTokenWithClientID(ctx, refreshToken, proxyURL, clientID)
+	return s.RefreshTokenWithClientID(withCodexR1CanaryAccountContext(ctx, account), refreshToken, proxyURL, clientID)
 }
 
 // BuildAccountCredentials builds credentials map from token info

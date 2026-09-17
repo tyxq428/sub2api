@@ -45,7 +45,7 @@ func TestR1B5HandlerPreservesHyphenatedSessionAliasesToFakeUpstream(t *testing.T
 		ID: 9951, Name: "r1-b5-wire", Platform: service.PlatformOpenAI,
 		Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
 		Credentials: map[string]any{"api_key": "synthetic-key", "base_url": "https://api.example.invalid"},
-		Extra:       map[string]any{"openai_passthrough": true},
+		Extra:       map[string]any{"openai_passthrough": true, service.OpenAICodexR1CanaryExtraKey: true},
 	}
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: []service.Account{account}}
 	upstream := &r1B5HeaderCaptureUpstream{}

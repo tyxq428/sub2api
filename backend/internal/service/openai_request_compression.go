@@ -18,7 +18,7 @@ var (
 )
 
 func shouldCompressOpenAIResponsesRequest(c *gin.Context, account *Account) bool {
-	if account == nil || !account.IsOpenAI() || !account.UsesOpenAICodexProtocol() {
+	if account == nil || !account.IsCodexR1CanaryEnabled() || !account.UsesOpenAICodexProtocol() {
 		return false
 	}
 	// This batch intentionally mirrors only the base HTTP /responses request

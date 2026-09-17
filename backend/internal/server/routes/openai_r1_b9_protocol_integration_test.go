@@ -140,9 +140,9 @@ func b9ProtocolRouter(t *testing.T, cfg *config.Config, account service.Account,
 	auth := servermiddleware.NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg)
 	r := gin.New()
 	r.Use(handler.InboundEndpointMiddleware())
-	r.POST("/v1/responses", auth, h.Responses)
-	r.POST("/v1/responses/*subpath", auth, h.Responses)
-	r.GET("/v1/responses", auth, h.ResponsesWebSocket)
+	r.POST("/v1/responses", gin.HandlerFunc(auth), h.Responses)
+	r.POST("/v1/responses/*subpath", gin.HandlerFunc(auth), h.Responses)
+	r.GET("/v1/responses", gin.HandlerFunc(auth), h.ResponsesWebSocket)
 	return r
 }
 

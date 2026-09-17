@@ -1093,6 +1093,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if headerGuard != nil {
 			resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: headerGuard.close}
 		}
+		s.logOpenAICodexTurnStateDebug(account, upstreamModel, resp.StatusCode, resp.Header)
 
 		// Handle error response
 		if resp.StatusCode >= 400 {

@@ -8,6 +8,7 @@ import (
 )
 
 func TestCodexR1CanaryGateDefaultsOffAndRequiresBooleanTrue(t *testing.T) {
+	t.Setenv(OpenAICodexR1CanaryAccountIDsEnv, "")
 	tests := []struct {
 		name    string
 		account *Account
@@ -25,6 +26,66 @@ func TestCodexR1CanaryGateDefaultsOffAndRequiresBooleanTrue(t *testing.T) {
 			require.Equal(t, tt.want, tt.account.IsCodexR1CanaryEnabled())
 		})
 	}
+}
+
+func TestCodexR1CanaryDeploymentAllowlistIsSelectiveAndFailClosed(t *testing.T) {
+	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	tests := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"unset_equivalent", "", false},
+		{"whitespace", "   ", false},
+		{"single_match", "42", true},
+		{"multiple_match", "7, 42, 99", true},
+		{"other_ids", "7,41,99", false},
+		{"empty_token_fails_closed", "42,,99", false},
+		{"leading_empty_token_fails_closed", ",42", false},
+		{"trailing_empty_token_fails_closed", "42,", false},
+		{"non_numeric_fails_closed", "42,nope", false},
+		{"zero_fails_closed", "42,0", false},
+		{"negative_fails_closed", "42,-1", false},
+		{"overflow_fails_closed", "42,9223372036854775808", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(OpenAICodexR1CanaryAccountIDsEnv, tt.raw)
+			require.Equal(t, tt.want, account.IsCodexR1CanaryEnabled())
+		})
+	}
+}
+
+func TestCodexR1CanaryDeploymentAllowlistStillRequiresOpenAIAndPositiveAccountID(t *testing.T) {
+	t.Setenv(OpenAICodexR1CanaryAccountIDsEnv, "42")
+	require.False(t, (&Account{ID: 42, Platform: PlatformAnthropic, Type: AccountTypeOAuth}).IsCodexR1CanaryEnabled())
+	require.False(t, (&Account{ID: 0, Platform: PlatformOpenAI, Type: AccountTypeOAuth}).IsCodexR1CanaryEnabled())
+	require.False(t, (&Account{ID: -42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}).IsCodexR1CanaryEnabled())
+}
+
+func TestCodexR1CanaryExtraTrueRemainsPrimaryOptIn(t *testing.T) {
+	t.Setenv(OpenAICodexR1CanaryAccountIDsEnv, "malformed")
+	account := &Account{
+		ID:       42,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra:    map[string]any{OpenAICodexR1CanaryExtraKey: true},
+	}
+	require.True(t, account.IsCodexR1CanaryEnabled())
+}
+
+func TestCodexR1CanaryStringExtraDoesNotBypassDeploymentAllowlist(t *testing.T) {
+	account := &Account{
+		ID:       42,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra:    map[string]any{OpenAICodexR1CanaryExtraKey: "true"},
+	}
+	t.Setenv(OpenAICodexR1CanaryAccountIDsEnv, "")
+	require.False(t, account.IsCodexR1CanaryEnabled())
+	t.Setenv(OpenAICodexR1CanaryAccountIDsEnv, "42")
+	require.True(t, account.IsCodexR1CanaryEnabled())
 }
 
 func TestCodexR1CanaryIdentityIsAccountScoped(t *testing.T) {

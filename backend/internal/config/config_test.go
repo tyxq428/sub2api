@@ -2540,6 +2540,45 @@ func TestValidateConfig_LogRequiredAndRotationBounds(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultCodexR2ConfigIsOff(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, CodexR2ModeOff, cfg.Gateway.CodexR2.Mode)
+	require.Equal(t, CodexR2ClientUAModeLegacyCanonical, cfg.Gateway.CodexR2.ClientUAMode)
+	require.False(t, cfg.Gateway.CodexR2.ShadowTelemetry)
+	require.False(t, cfg.Gateway.CodexR2.NewSessionAdmission)
+	require.Empty(t, cfg.Gateway.CodexR2.EligibleAccountIDs)
+	require.Equal(t, "codex-0.154-profile-r1", cfg.Gateway.CodexR2.ReferenceProfile)
+	require.Equal(t, 4096, cfg.Gateway.CodexR2.ObserverQueueCapacity)
+	require.Equal(t, 4096, cfg.Gateway.CodexR2.ObserverEventMaxBytes)
+}
+
+func TestLoadInvalidCodexR2ModeFailsClosedToOff(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	viper.Set("gateway.codex_r2.mode", "not-a-mode")
+	viper.Set("gateway.codex_r2.client_ua_mode", "not-a-ua-mode")
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, CodexR2ModeOff, cfg.Gateway.CodexR2.Mode)
+	require.Equal(t, CodexR2ClientUAModeLegacyCanonical, cfg.Gateway.CodexR2.ClientUAMode)
+}
+
+func TestValidateCodexR2ActiveRequiresExplicitPositiveAccountsAndSecret(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	cfg.Gateway.CodexR2.Mode = CodexR2ModeShadow
+	require.ErrorContains(t, cfg.Validate(), "eligible_account_ids is required")
+	cfg.Gateway.CodexR2.EligibleAccountIDs = []int64{8, 8}
+	require.ErrorContains(t, cfg.Validate(), "must not contain duplicates")
+	cfg.Gateway.CodexR2.EligibleAccountIDs = []int64{8}
+	cfg.Gateway.CodexR2.ShadowTelemetry = true
+	require.ErrorContains(t, cfg.Validate(), "telemetry_hmac_key must be at least 32 bytes")
+	cfg.Gateway.CodexR2.TelemetryHMACKey = "01234567890123456789012345678901"
+	require.NoError(t, cfg.Validate())
+}
+
 func TestLoad_DefaultGatewayUsageRecordConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	cfg, err := Load()

@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "434112e816951080f3e9619f30d5f5bc1165c8a0",
+  "reference_repository": "openai/codex",
+  "reference_commit": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+  "reference_tag": "rust-v0.154.0",
+  "reference_files": [
+    {
+      "path": "codex-rs/core/src/responses_metadata.rs",
+      "url": "https://raw.githubusercontent.com/openai/codex/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/codex-rs/core/src/responses_metadata.rs",
+      "bytes": 23205,
+      "git_blob_sha1": "3c1fd729fb7792a2b49e3347749eaff76eb1e6e6",
+      "sha256": "715e28a3b05262e57bad12a23364ebf7ded38e41ad795d57defd72efed0129aa"
+    },
+    {
+      "path": "codex-rs/core/tests/suite/prompt_cache_key.rs",
+      "url": "https://raw.githubusercontent.com/openai/codex/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/codex-rs/core/tests/suite/prompt_cache_key.rs",
+      "bytes": 5868,
+      "git_blob_sha1": "5e258a936f542c5342612c11bf76d4471472f390",
+      "sha256": "4fe4973eafd441a456cd9e03715f4d4ca45dddd3d1ae92a30eb37fbc55fdc89a"
+    },
+    {
+      "path": "codex-rs/login/src/auth/default_client.rs",
+      "url": "https://raw.githubusercontent.com/openai/codex/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/codex-rs/login/src/auth/default_client.rs",
+      "bytes": 13288,
+      "git_blob_sha1": "cd4cbd5431a785b0a1f2a9963b1536d2edf135ec",
+      "sha256": "e50fc9a61d4b91127e2c248e15d45e735831e4070c396fa8efbc693717cfb23b"
+    },
+    {
+      "path": "codex-rs/protocol/src/thread_id.rs",
+      "url": "https://raw.githubusercontent.com/openai/codex/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/codex-rs/protocol/src/thread_id.rs",
+      "bytes": 2817,
+      "git_blob_sha1": "2e0f21561b7bdc8f58f330e8a7132a3f70a95257",
+      "sha256": "6f1f15040fd6cd6e63ecedd632fad5d7efd7d9404356d54a22f521157c127b7d"
+    },
+    {
+      "path": "codex-rs/codex-api/src/requests/headers.rs",
+      "url": "https://raw.githubusercontent.com/openai/codex/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/codex-rs/codex-api/src/requests/headers.rs",
+      "bytes": 1444,
+      "git_blob_sha1": "c5cede8ac63c8d7da8aafc6323795e24c98f8da2",
+      "sha256": "98c9579a8f17327fda1792ffbf22e8d09241fdc79620c37b699d94cd9637cd47"
+    },
+    {
+      "path": "codex-rs/core/src/client.rs",
+      "url": "https://raw.githubusercontent.com/openai/codex/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/codex-rs/core/src/client.rs",
+      "bytes": 108731,
+      "git_blob_sha1": "a813022548c9e714d6ccf07c99513367f8bc78f2",
+      "sha256": "6979098f4ad7b5ec16f19ca90d5c927d3b1e33d0f6d926c70388d0237c52af35"
+    },
+    {
+      "path": "codex-rs/codex-api/tests/clients.rs",
+      "url": "https://raw.githubusercontent.com/openai/codex/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/codex-rs/codex-api/tests/clients.rs",
+      "bytes": 18491,
+      "git_blob_sha1": "af43022417fdc046726280f237c7e39a1195eaff",
+      "sha256": "263286755c5012193ba2f0809cfb6d3f0db2b3c9d320f0f49ec579bd3897b191"
+    },
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/openai/codex/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/LICENSE",
+      "bytes": 10926,
+      "git_blob_sha1": "4606e72e042564097e8780d66c1d4dcb611869bd",
+      "sha256": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc"
+    }
+  ],
+  "baseline_files": [
+    {
+      "path": "backend/internal/service/openai_codex_account_identity.go",
+      "bytes": 9447,
+      "git_blob_sha1": "d0e336ec6ccba42a8f7219a669094a9693fe6d24",
+      "sha256": "ca7963946092834fffe3e50bdffdb819de0e55168fa4ef1163448d13f2d561e9"
+    },
+    {
+      "path": "backend/internal/service/openai_codex_identity.go",
+      "bytes": 12425,
+      "git_blob_sha1": "cf55b3090b949dc1dd2f3ae3917906e21d249361",
+      "sha256": "c298d0d475e06146faa6e7036b1ab3bb81748bad8bb0cb1da25c32b42fbe8193"
+    },
+    {
+      "path": "backend/internal/service/openai_r1_canary.go",
+      "bytes": 3084,
+      "git_blob_sha1": "b79f4c998fdad80ade50e4f5e47a6204ef1628d0",
+      "sha256": "15eb4bd0d4043951429676f441c70b2d1f440c6d8c99ecd9cfb8d664f08eea34"
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "bytes": 63151,
+      "git_blob_sha1": "5769d0f0195a949b27ee4dd65a09d16555fd48d4",
+      "sha256": "3b000d8b6a43b7d972fc4c7b12eb1e69cc746a84e9f8bcfd7b4ed554bc418940"
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "bytes": 94756,
+      "git_blob_sha1": "a5f9a69c86e6e00ea483683587d475358a80d029",
+      "sha256": "516501aab94bdd17b50bb52ea902c6b80a008b30b21abd86a5091bf75f3b7f94"
+    },
+    {
+      "path": "backend/internal/service/openai_ws_pool.go",
+      "bytes": 66688,
+      "git_blob_sha1": "3ce033ea7827b645dbfe213f8f1c085ae2282b84",
+      "sha256": "7640ffbff009b37cef891b4cb4a9c1bc0016527f059c066d6f8ff71402841f4a"
+    },
+    {
+      "path": "backend/internal/service/openai_ws_execution_scope.go",
+      "bytes": 6618,
+      "git_blob_sha1": "e15ef0a8ba3e1c0e647d58b25fb37b91a4d5d315",
+      "sha256": "0551e63e8b7e03321bdd36d32d282d43566352206d62ef9584414455493aabb8"
+    },
+    {
+      "path": "backend/go.mod",
+      "bytes": 10128,
+      "git_blob_sha1": "941f519d08e7289c7a5f1d5a0809c38e2aa365dd",
+      "sha256": "105595eed2189a9e501d17a5a046fce5b84e0830b3792c7d13479553665cd12d"
+    },
+    {
+      "path": "backend/go.sum",
+      "bytes": 74619,
+      "git_blob_sha1": "d5c31918f6893ea611eac42712946897979e7bda",
+      "sha256": "e46fd859d115a1a2406094268dc47d53b50f2ff7b3ba3b1bd9821eee325dd944"
+    },
+    {
+      "path": "Dockerfile",
+      "bytes": 6460,
+      "git_blob_sha1": "adfa4d4702ec6a383019343bb9159bf389f9cc38",
+      "sha256": "2d87d5b38082e0bba357e64ee5fc32085c81e6aa82ced4f24e4d8e483661db72"
+    },
+    {
+      "path": ".github/workflows/backend-ci.yml",
+      "bytes": 2333,
+      "git_blob_sha1": "82d71185203694b3afa1f6ae06854c977de6d18b",
+      "sha256": "5bb81cb33c997d96369965dae156e26c17731f9166772077293b9ff57ff938a2"
+    },
+    {
+      "path": ".github/workflows/security-scan.yml",
+      "bytes": 1543,
+      "git_blob_sha1": "97357efde27a364ce6dcccad34141f2aa16a4418",
+      "sha256": "0dad696bd4c13f7396e934f706b7ad49c7eec2997bd3090faf17ec1257689147"
+    }
+  ],
+  "runtime_rules": "No live fetching. OAuth runtime equivalence requires independent synthetic fixtures; API-key tests are not OAuth evidence."
+}

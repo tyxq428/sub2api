@@ -120,7 +120,7 @@ func (r SemanticRole) mappingDomain() string {
 
 func (r SemanticRole) currentEntityRole() bool {
 	switch r {
-	case RoleInstallation, RoleSession, RoleThread, RoleTurn, RoleWindow, RoleContextWindow:
+	case RoleInstallation, RoleSession, RoleRoutingSession, RoleThread, RoleTurn, RoleWindow, RoleContextWindow:
 		return true
 	default:
 		return false

@@ -21,6 +21,7 @@ type OutboundPlan struct {
 	ProfileID   string
 	Client      ClientIdentity
 	Patches     []Patch
+	Mapped      map[SemanticRole]string
 	Diagnostics []Diagnostic
 	Conflicts   []Diagnostic
 }
@@ -35,6 +36,7 @@ func BuildPlan(snapshot RawSnapshot, profile ProtocolProfile, mapper *Mapper, op
 	graph := BuildGraph(snapshot, profile)
 	plan := OutboundPlan{
 		ProfileID:   profile.ID,
+		Mapped:      make(map[SemanticRole]string),
 		Diagnostics: append([]Diagnostic(nil), graph.Diagnostics...),
 		Conflicts:   append([]Diagnostic(nil), graph.Conflicts...),
 	}
@@ -52,6 +54,9 @@ func BuildPlan(snapshot RawSnapshot, profile ProtocolProfile, mapper *Mapper, op
 		mapped, err := mapper.Map(domain, projection.SemanticValue)
 		if err != nil {
 			return OutboundPlan{}, err
+		}
+		if _, exists := plan.Mapped[projection.Role]; !exists {
+			plan.Mapped[projection.Role] = mapped
 		}
 		addPlanPatch(&plan, patches, Patch{Carrier: projection.Field.Carrier, Path: projection.Field.Name, Value: mapped})
 	}
@@ -80,6 +85,10 @@ func BuildPlan(snapshot RawSnapshot, profile ProtocolProfile, mapper *Mapper, op
 	sortDiagnostics(plan.Diagnostics)
 	sortDiagnostics(plan.Conflicts)
 	return plan, nil
+}
+
+func (p OutboundPlan) MappedValue(role SemanticRole) string {
+	return p.Mapped[role]
 }
 
 func (p OutboundPlan) Validate() error {

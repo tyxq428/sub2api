@@ -50,15 +50,19 @@ func resolveCodexR2EffectivePolicy(cfg *config.Config, account *Account) codexR2
 		policy.Reason = "fingerprint_convergence_conflict"
 		return policy
 	}
-	if mode == codexidentity.ModeEnforce && !r2.NewSessionAdmission {
-		policy.Reason = "new_session_admission_disabled"
+	if strings.TrimSpace(account.GetOpenAIUserAgent()) != "" {
+		policy.Reason = "custom_ua_conflict"
 		return policy
 	}
-	if mode == codexidentity.ModeEnforce && len([]byte(r2.MappingHMACKey)) < 32 {
+	if cfg.Gateway.ForceCodexCLI {
+		policy.Reason = "force_codex_cli_conflict"
+		return policy
+	}
+	if len([]byte(r2.MappingHMACKey)) < 32 {
 		policy.Reason = "mapping_key_missing"
 		return policy
 	}
-	if mode == codexidentity.ModeEnforce && strings.TrimSpace(r2.MappingKeyEpoch) == "" {
+	if strings.TrimSpace(r2.MappingKeyEpoch) == "" {
 		policy.Reason = "mapping_key_epoch_missing"
 		return policy
 	}

@@ -2756,12 +2756,12 @@ func validateCodexR2Config(cfg GatewayCodexR2Config) error {
 	if cfg.ShadowTelemetry && len([]byte(cfg.TelemetryHMACKey)) < 32 {
 		return fmt.Errorf("gateway.codex_r2.telemetry_hmac_key must be at least 32 bytes when shadow telemetry is enabled")
 	}
-	if cfg.Mode == CodexR2ModeEnforce {
+	if cfg.Mode != CodexR2ModeOff {
 		if len([]byte(cfg.MappingHMACKey)) < 32 {
-			return fmt.Errorf("gateway.codex_r2.mapping_hmac_key must be at least 32 bytes when R2 enforce mode is active")
+			return fmt.Errorf("gateway.codex_r2.mapping_hmac_key must be at least 32 bytes when R2 is active")
 		}
 		if strings.TrimSpace(cfg.MappingKeyEpoch) == "" {
-			return fmt.Errorf("gateway.codex_r2.mapping_key_epoch is required when R2 enforce mode is active")
+			return fmt.Errorf("gateway.codex_r2.mapping_key_epoch is required when R2 is active")
 		}
 	}
 	for name, value := range map[string]int{

@@ -64,13 +64,13 @@ func TestResolveCodexR2PolicyRejectsFingerprintConvergenceConflict(t *testing.T)
 	require.Equal(t, "fingerprint_convergence_conflict", policy.Reason)
 }
 
-func TestResolveCodexR2EnforceRequiresExplicitAdmissionSwitch(t *testing.T) {
+func TestResolveCodexR2EnforceAdmissionSwitchDoesNotChangeExistingSessionPolicy(t *testing.T) {
 	cfg := syntheticR2Config()
 	cfg.Gateway.CodexR2.Mode = config.CodexR2ModeEnforce
 	account := &Account{ID: 8, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	policy := resolveCodexR2EffectivePolicy(cfg, account)
-	require.Equal(t, codexidentity.ModeOff, policy.Mode)
-	require.Equal(t, "new_session_admission_disabled", policy.Reason)
+	require.Equal(t, codexidentity.ModeEnforce, policy.Mode)
+	require.Equal(t, "explicit_r2_policy", policy.Reason)
 
 	cfg.Gateway.CodexR2.NewSessionAdmission = true
 	policy = resolveCodexR2EffectivePolicy(cfg, account)

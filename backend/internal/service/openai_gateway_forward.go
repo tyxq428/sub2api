@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/codexidentity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
@@ -147,6 +148,25 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 		body = adaptedBody
 		setOpenAIResponsesClientToolMapping(c, mapping)
+	}
+
+	r2Attempt, r2Err := s.prepareCodexR2Attempt(
+		ctx,
+		c,
+		account,
+		c.Request.Header,
+		body,
+		codexR2Purpose(c, wsDecision.Transport == OpenAIUpstreamTransportResponsesWebsocketV2),
+	)
+	if r2Err != nil {
+		return nil, r2Err
+	}
+	if r2Attempt != nil && r2Attempt.Policy.Mode == codexidentity.ModeEnforce {
+		projectedBody, projectErr := codexidentity.ProjectBody(body, r2Attempt.Plan)
+		if projectErr != nil {
+			return nil, fmt.Errorf("project codex r2 request body: %w", projectErr)
+		}
+		body = projectedBody
 	}
 
 	originalBody := body
@@ -532,8 +552,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if codexResult.Modified {
 			markDecodedModified()
 		}
-		// 带真实 device_id 时补齐 client_metadata 安装标识，与真实 Codex 对齐（compact 形态不同，跳过）。
-		if !isCompactRequest && applyCodexClientMetadata(decoded, account) {
+		r2Enforce := codexR2Enforcing(c)
+		// R2 enforce preserves the client's declared installation topology and
+		// therefore must not synthesize account-level installation metadata.
+		if !r2Enforce && !isCompactRequest && applyCodexClientMetadata(decoded, account) {
 			markDecodedModified()
 		}
 		if currentClientPromptCacheKey, ok := decoded["prompt_cache_key"].(string); ok {
@@ -542,13 +564,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		// Account namespace is orthogonal to fingerprint convergence: preserve
 		// each client's identity cardinality, but never reuse it across OAuth
 		// credentials after scheduler failover.
-		if !isCompactRequest && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c)) {
+		if !r2Enforce && !isCompactRequest && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c)) {
 			markDecodedModified()
 		}
 		stageCodexFingerprintIDs(c, nil)
 		// 指纹收敛：一次性解析收敛 ID，请求体和出站头共享同一份 IDs（保证 turn_id 等随机字段一致）。
 		// fingerprintIDs 在此处解析，后续 buildUpstreamRequest 中使用同一份。
-		if !isCompactRequest {
+		if !r2Enforce && !isCompactRequest {
 			var clientHeaders http.Header
 			if c != nil && c.Request != nil {
 				clientHeaders = c.Request.Header
@@ -1434,7 +1456,8 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// Whitelist passthrough headers
 	for key, values := range c.Request.Header {
 		lowerKey := strings.ToLower(key)
-		if openaiAllowedHeaders[lowerKey] && allowOpenAIR1IngressHeader(account, lowerKey) {
+		if (openaiAllowedHeaders[lowerKey] && allowOpenAIR1IngressHeader(account, lowerKey)) ||
+			allowCodexR2IdentityIngressHeader(c, lowerKey) {
 			for _, v := range values {
 				req.Header.Add(key, v)
 			}
@@ -1443,35 +1466,40 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 客户端回带的 x-codex-turn-state 若已知由其他账号铸造（failover 换号），
 	// 剥离后再出站——异账号 blob 与本账号的（指纹收敛后）出站身份自相矛盾。
 	s.guardOpenAICodexTurnStateEcho(c, account, req.Header)
+	r2Enforce := codexR2Enforcing(c)
 	if account.UsesOpenAICodexProtocol() {
 		compatMessagesBridge := isOpenAICompatMessagesBridgeContext(c) || isOpenAICompatMessagesBridgeBody(body)
-		// 清除客户端透传的 session 头，后续用隔离后的值重新设置，防止跨用户会话碰撞。
-		clientConversationID := strings.TrimSpace(req.Header.Get("conversation_id"))
-		req.Header.Del("conversation_id")
-		req.Header.Del("session_id")
-
 		if compatMessagesBridge {
 			req.Header.Del("OpenAI-Beta")
 			req.Header.Del("originator")
-		} else {
+		} else if !r2Enforce {
 			req.Header.Set("originator", resolveOpenAIUpstreamOriginator(c, isCodexCLI))
 		}
-		apiKeyID := getAPIKeyIDFromContext(c)
 		if isOpenAIResponsesCompactPath(c) {
 			req.Header.Set("accept", "application/json")
-			if req.Header.Get("version") == "" {
+			if !r2Enforce && req.Header.Get("version") == "" {
 				req.Header.Set("version", CodexCanonicalClientVersionForAccount(account))
 			}
-			compactSession := resolveOpenAICompactSessionID(c)
-			req.Header.Set("session_id", isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), compactSession))
 		} else {
 			req.Header.Set("accept", "text/event-stream")
 		}
-		if promptCacheKey != "" {
-			isolated := isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey)
-			req.Header.Set("session_id", isolated)
-			if !compatMessagesBridge || clientConversationID != "" {
-				req.Header.Set("conversation_id", isolated)
+		if !r2Enforce {
+			// Legacy/R1 owns session isolation. R2 enforce leaves the raw carriers
+			// intact until its single semantic projection below.
+			clientConversationID := strings.TrimSpace(req.Header.Get("conversation_id"))
+			req.Header.Del("conversation_id")
+			req.Header.Del("session_id")
+			apiKeyID := getAPIKeyIDFromContext(c)
+			if isOpenAIResponsesCompactPath(c) {
+				compactSession := resolveOpenAICompactSessionID(c)
+				req.Header.Set("session_id", isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), compactSession))
+			}
+			if promptCacheKey != "" {
+				isolated := isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey)
+				req.Header.Set("session_id", isolated)
+				if !compatMessagesBridge || clientConversationID != "" {
+					req.Header.Set("conversation_id", isolated)
+				}
 			}
 		}
 	} else if isOpenAIResponsesCompactPath(c) {
@@ -1480,29 +1508,24 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		req.Header.Set("accept", "application/json")
 	}
 
-	// Apply custom User-Agent if configured
-	customUA := account.GetOpenAIUserAgent()
-	if customUA != "" {
-		req.Header.Set("user-agent", customUA)
-	}
-
-	// 若开启 ForceCodexCLI，则强制将上游 User-Agent 伪装为规范 Codex 身份。
-	// 用于网关未透传/改写 User-Agent 时，仍能命中 Codex 侧识别逻辑。
-	if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
-		req.Header.Set("user-agent", CodexCanonicalUserAgentForAccount(account))
-	}
-
-	// 账号 namespace 不改变客户端身份基数，但确保 scheduler failover 后不会把
-	// 同一组 Codex IDs 发送给另一份 OAuth 凭据。可选指纹收敛随后仍可覆盖这些值。
-	applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
-
-	// 指纹收敛：使用 Forward() 中预计算的收敛 ID 改写出站头，与请求体使用同一份 IDs。
-	applyStagedCodexFingerprintHeaders(c, account, req.Header)
-
-	// 终态收口：强制统一 OAuth 出站身份（User-Agent / originator / version 同源自洽）。
-	// 客户端自报身份不参与构造，浏览器型 UA 也因此不会再到达上游（原浏览器 UA 兜底已被吸收）。
-	if account.UsesOpenAICodexProtocol() {
-		enforceCodexIdentityHeadersForAccount(req.Header, account, s.codexIdentityOverrideUA(account))
+	if r2Enforce {
+		if err := applyCodexR2HeaderPlan(c, req.Header); err != nil {
+			return nil, fmt.Errorf("project codex r2 request headers: %w", err)
+		}
+	} else {
+		// Legacy/R1 identity writers remain intact when R2 is not enforcing.
+		customUA := account.GetOpenAIUserAgent()
+		if customUA != "" {
+			req.Header.Set("user-agent", customUA)
+		}
+		if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
+			req.Header.Set("user-agent", CodexCanonicalUserAgentForAccount(account))
+		}
+		applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+		applyStagedCodexFingerprintHeaders(c, account, req.Header)
+		if account.UsesOpenAICodexProtocol() {
+			enforceCodexIdentityHeadersForAccount(req.Header, account, s.codexIdentityOverrideUA(account))
+		}
 	}
 
 	// Ensure required headers exist
@@ -1517,6 +1540,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
+	s.recordCodexR2Actual(account, stagedCodexR2Attempt(c), req.Header, body, "prepared")
 	if err := applyOpenAIResponsesRequestCompression(c, account, req, body); err != nil {
 		return nil, fmt.Errorf("compress openai responses request: %w", err)
 	}

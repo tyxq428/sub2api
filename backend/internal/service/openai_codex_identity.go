@@ -180,12 +180,6 @@ func resolveCodexOutboundIdentityAgainstCanonical(candidateUA, canonical, fallba
 	return codexOutboundIdentity{userAgent: pairedUA, originator: originator, version: version}
 }
 
-// codexClientVersionFromUA 取 UA 的版本段作为生效版本；
-// 非法或低于上游门槛（低于则上游 404，issue #3901）时回退编译期常量。
-func codexClientVersionFromUA(ua string) string {
-	return codexClientVersionFromUAWithFallback(ua, codexCLIVersion)
-}
-
 func codexClientVersionFromUAWithFallback(ua, fallback string) string {
 	version := NormalizeCodexClientVersion(openai.CodexUserAgentVersion(ua))
 	if version == "" || CompareVersions(version, codexUpstreamMinVersion) < 0 {
@@ -272,12 +266,8 @@ func enforceCodexIdentityHeadersForAccount(h http.Header, account *Account, over
 	h.Set("version", identity.version)
 }
 
-// pairCodexIdentityHeaders 是关闭强制统一后的兜底收口：保留客户端真实身份，
+// pairCodexIdentityHeadersForAccount 是关闭强制统一后的兜底收口：保留客户端真实身份，
 // 仅保证 originator 与最终 User-Agent 首段配套、version 不低于上游门槛（issue #3901）。
-func pairCodexIdentityHeaders(h http.Header) {
-	pairCodexIdentityHeadersForAccount(h, nil)
-}
-
 func pairCodexIdentityHeadersForAccount(h http.Header, account *Account) {
 	originator, pairedUA, ok := openai.PairCodexClientIdentity(h.Get("user-agent"))
 	if !ok {

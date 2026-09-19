@@ -524,7 +524,9 @@ ORDER BY bucket_date DESC, stage, purpose, profile, result`, account.ID, days)
 	if err != nil {
 		return nil, err
 	}
-	defer shadowRows.Close()
+	defer func() {
+		_ = shadowRows.Close()
+	}()
 	for shadowRows.Next() {
 		var row CodexR2ShadowDaily
 		if err := shadowRows.Scan(

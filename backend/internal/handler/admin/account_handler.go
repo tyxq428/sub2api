@@ -66,6 +66,7 @@ type AccountHandler struct {
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
 	cfg                     *config.Config
+	codexR2State            *service.CodexR2StateService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -75,6 +76,10 @@ func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamB
 
 func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUsageService) {
 	h.ollamaCloudUsage = usage
+}
+
+func (h *AccountHandler) SetCodexR2StateService(state *service.CodexR2StateService) {
+	h.codexR2State = state
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -944,6 +949,64 @@ func (h *AccountHandler) GetByID(c *gin.Context) {
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+// GetCodexR2State returns effective R2 policy plus bounded local diagnostic
+// aggregates. Raw identities and configuration secrets are never returned.
+func (h *AccountHandler) GetCodexR2State(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if h.codexR2State == nil {
+		response.InternalError(c, "Codex R2 state service unavailable")
+		return
+	}
+	days := 7
+	if raw := strings.TrimSpace(c.Query("days")); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed < 1 || parsed > 30 {
+			response.BadRequest(c, "days must be between 1 and 30")
+			return
+		}
+		days = parsed
+	}
+	state, err := h.codexR2State.AccountState(c.Request.Context(), account, days)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, state)
+}
+
+// DrainCodexR2Bindings marks active bindings as draining. It neither enables
+// R2 nor mutates account credentials.
+func (h *AccountHandler) DrainCodexR2Bindings(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if _, err := h.adminService.GetAccount(c.Request.Context(), accountID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if h.codexR2State == nil {
+		response.InternalError(c, "Codex R2 state service unavailable")
+		return
+	}
+	count, err := h.codexR2State.DrainAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"draining": count})
 }
 
 // CheckMixedChannel handles checking mixed channel risk for account-group binding.

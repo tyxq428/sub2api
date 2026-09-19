@@ -844,6 +844,7 @@ var ProviderSet = wire.NewSet(
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,
+	NewCodexR2StateService,
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,
 	ProvideBatchImageModelPricingResolver,

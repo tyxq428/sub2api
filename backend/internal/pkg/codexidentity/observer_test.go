@@ -80,6 +80,30 @@ func TestObserverPseudonymizesAndNeverPersistsRawIdentity(t *testing.T) {
 	require.Equal(t, int64(1234), events[0].ObservedAtUnixMS)
 }
 
+func TestObserverRecordForAccountCarriesOwnerOutsideSerializedPayload(t *testing.T) {
+	sink := &memorySink{}
+	observer, err := NewObserver(ObserverOptions{
+		Mode:          ModeShadow,
+		Secret:        []byte("01234567890123456789012345678901"),
+		QueueCapacity: 8,
+		MaxEventBytes: 4096,
+		BatchSize:     1,
+		FlushInterval: time.Hour,
+		Sink:          sink,
+	})
+	require.NoError(t, err)
+	snapshot := Capture(http.Header{"Thread-Id": {"thread-owner-test"}}, nil, DefaultLimits())
+	require.Equal(t, RecordEnqueued, observer.RecordForAccount(8, snapshot, StageInput, PurposeInference, "", "ok"))
+	observer.Close()
+	events := sink.events()
+	require.Len(t, events, 1)
+	require.Equal(t, int64(8), events[0].AccountID)
+	encoded, err := json.Marshal(events[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "account_id")
+	require.NotContains(t, string(encoded), "thread-owner-test")
+}
+
 func TestObserverQueueFullDropsWithoutBlocking(t *testing.T) {
 	sink := &memorySink{block: make(chan struct{}), started: make(chan struct{}, 1)}
 	observer, err := NewObserver(ObserverOptions{

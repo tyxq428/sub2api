@@ -17,6 +17,8 @@ func syntheticR2Config() *config.Config {
 		ClientUAMode:           config.CodexR2ClientUAModePreserveValidated,
 		ReferenceProfile:       "codex-0.154-profile-r1",
 		EligibleAccountIDs:     []int64{8},
+		MappingHMACKey:         "01234567890123456789012345678901",
+		MappingKeyEpoch:        "epoch-1",
 		MaxMetadataBytes:       256 * 1024,
 		MaxIdentityHeaderBytes: 16 * 1024,
 		MaxMetadataDepth:       32,
@@ -74,6 +76,24 @@ func TestResolveCodexR2EnforceRequiresExplicitAdmissionSwitch(t *testing.T) {
 	policy = resolveCodexR2EffectivePolicy(cfg, account)
 	require.Equal(t, codexidentity.ModeEnforce, policy.Mode)
 	require.Equal(t, "explicit_r2_policy", policy.Reason)
+}
+
+func TestResolveCodexR2EnforceRequiresMappingKeyMaterial(t *testing.T) {
+	cfg := syntheticR2Config()
+	cfg.Gateway.CodexR2.Mode = config.CodexR2ModeEnforce
+	cfg.Gateway.CodexR2.NewSessionAdmission = true
+	account := &Account{ID: 8, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	cfg.Gateway.CodexR2.MappingHMACKey = ""
+	policy := resolveCodexR2EffectivePolicy(cfg, account)
+	require.Equal(t, codexidentity.ModeOff, policy.Mode)
+	require.Equal(t, "mapping_key_missing", policy.Reason)
+
+	cfg.Gateway.CodexR2.MappingHMACKey = "01234567890123456789012345678901"
+	cfg.Gateway.CodexR2.MappingKeyEpoch = ""
+	policy = resolveCodexR2EffectivePolicy(cfg, account)
+	require.Equal(t, codexidentity.ModeOff, policy.Mode)
+	require.Equal(t, "mapping_key_epoch_missing", policy.Reason)
 }
 
 func TestCodexR2SnapshotLimitsUseDefaultsForZeroValues(t *testing.T) {

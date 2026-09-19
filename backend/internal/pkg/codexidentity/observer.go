@@ -23,6 +23,7 @@ type ObservedField struct {
 // Event contains only pseudonymized values. Raw identifiers, request content,
 // credentials and complete user-agent suffixes never enter a Sink.
 type Event struct {
+	AccountID        int64           `json:"-"`
 	ObservedAtUnixMS int64           `json:"observed_at_unix_ms"`
 	Stage            Stage           `json:"stage"`
 	Purpose          Purpose         `json:"purpose"`
@@ -135,6 +136,12 @@ func NewObserver(options ObserverOptions) (*Observer, error) {
 }
 
 func (o *Observer) Record(snapshot RawSnapshot, stage Stage, purpose Purpose, profile, result string) RecordResult {
+	return o.RecordForAccount(0, snapshot, stage, purpose, profile, result)
+}
+
+// RecordForAccount attaches the local account owner outside the serialized
+// diagnostic payload. Raw identity values still never enter a Sink.
+func (o *Observer) RecordForAccount(accountID int64, snapshot RawSnapshot, stage Stage, purpose Purpose, profile, result string) RecordResult {
 	if o == nil || o.mode == ModeOff {
 		if o != nil {
 			o.ignoredOff.Add(1)
@@ -149,6 +156,7 @@ func (o *Observer) Record(snapshot RawSnapshot, stage Stage, purpose Purpose, pr
 		return RecordDroppedStopped
 	}
 	event := o.buildEvent(snapshot, stage, purpose, profile, result)
+	event.AccountID = accountID
 	encoded, err := json.Marshal(event)
 	if err != nil || len(encoded) > o.maxEventBytes {
 		o.droppedOversize.Add(1)

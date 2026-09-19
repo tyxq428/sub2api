@@ -54,6 +54,14 @@ func resolveCodexR2EffectivePolicy(cfg *config.Config, account *Account) codexR2
 		policy.Reason = "new_session_admission_disabled"
 		return policy
 	}
+	if mode == codexidentity.ModeEnforce && len([]byte(r2.MappingHMACKey)) < 32 {
+		policy.Reason = "mapping_key_missing"
+		return policy
+	}
+	if mode == codexidentity.ModeEnforce && strings.TrimSpace(r2.MappingKeyEpoch) == "" {
+		policy.Reason = "mapping_key_epoch_missing"
+		return policy
+	}
 	policy.Mode = mode
 	policy.Reason = "explicit_r2_policy"
 	return policy

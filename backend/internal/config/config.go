@@ -964,6 +964,8 @@ type GatewayCodexR2Config struct {
 	NewSessionAdmission    bool    `mapstructure:"new_session_admission"`
 	EligibleAccountIDs     []int64 `mapstructure:"eligible_account_ids"`
 	TelemetryHMACKey       string  `mapstructure:"telemetry_hmac_key"`
+	MappingHMACKey         string  `mapstructure:"mapping_hmac_key"`
+	MappingKeyEpoch        string  `mapstructure:"mapping_key_epoch"`
 	MaxMetadataBytes       int     `mapstructure:"max_metadata_bytes"`
 	MaxIdentityHeaderBytes int     `mapstructure:"max_identity_header_bytes"`
 	MaxMetadataDepth       int     `mapstructure:"max_metadata_depth"`
@@ -2446,6 +2448,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.codex_r2.new_session_admission", false)
 	viper.SetDefault("gateway.codex_r2.eligible_account_ids", []int64{})
 	viper.SetDefault("gateway.codex_r2.telemetry_hmac_key", "")
+	viper.SetDefault("gateway.codex_r2.mapping_hmac_key", "")
+	viper.SetDefault("gateway.codex_r2.mapping_key_epoch", "epoch-1")
 	viper.SetDefault("gateway.codex_r2.max_metadata_bytes", 256*1024)
 	viper.SetDefault("gateway.codex_r2.max_identity_header_bytes", 16*1024)
 	viper.SetDefault("gateway.codex_r2.max_metadata_depth", 32)
@@ -2751,6 +2755,14 @@ func validateCodexR2Config(cfg GatewayCodexR2Config) error {
 	}
 	if cfg.ShadowTelemetry && len([]byte(cfg.TelemetryHMACKey)) < 32 {
 		return fmt.Errorf("gateway.codex_r2.telemetry_hmac_key must be at least 32 bytes when shadow telemetry is enabled")
+	}
+	if cfg.Mode == CodexR2ModeEnforce {
+		if len([]byte(cfg.MappingHMACKey)) < 32 {
+			return fmt.Errorf("gateway.codex_r2.mapping_hmac_key must be at least 32 bytes when R2 enforce mode is active")
+		}
+		if strings.TrimSpace(cfg.MappingKeyEpoch) == "" {
+			return fmt.Errorf("gateway.codex_r2.mapping_key_epoch is required when R2 enforce mode is active")
+		}
 	}
 	for name, value := range map[string]int{
 		"max_metadata_bytes":        cfg.MaxMetadataBytes,

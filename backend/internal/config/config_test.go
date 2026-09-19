@@ -2550,6 +2550,8 @@ func TestLoadDefaultCodexR2ConfigIsOff(t *testing.T) {
 	require.False(t, cfg.Gateway.CodexR2.NewSessionAdmission)
 	require.Empty(t, cfg.Gateway.CodexR2.EligibleAccountIDs)
 	require.Equal(t, "codex-0.154-profile-r1", cfg.Gateway.CodexR2.ReferenceProfile)
+	require.Equal(t, "epoch-1", cfg.Gateway.CodexR2.MappingKeyEpoch)
+	require.Empty(t, cfg.Gateway.CodexR2.MappingHMACKey)
 	require.Equal(t, 4096, cfg.Gateway.CodexR2.ObserverQueueCapacity)
 	require.Equal(t, 4096, cfg.Gateway.CodexR2.ObserverEventMaxBytes)
 }
@@ -2576,6 +2578,11 @@ func TestValidateCodexR2ActiveRequiresExplicitPositiveAccountsAndSecret(t *testi
 	cfg.Gateway.CodexR2.ShadowTelemetry = true
 	require.ErrorContains(t, cfg.Validate(), "telemetry_hmac_key must be at least 32 bytes")
 	cfg.Gateway.CodexR2.TelemetryHMACKey = "01234567890123456789012345678901"
+	require.NoError(t, cfg.Validate())
+	cfg.Gateway.CodexR2.Mode = CodexR2ModeEnforce
+	cfg.Gateway.CodexR2.NewSessionAdmission = true
+	require.ErrorContains(t, cfg.Validate(), "mapping_hmac_key must be at least 32 bytes")
+	cfg.Gateway.CodexR2.MappingHMACKey = "abcdefghijklmnopqrstuvwxyz123456"
 	require.NoError(t, cfg.Validate())
 }
 

@@ -2267,6 +2267,15 @@
             <Select v-model="codexFingerprintMode" data-testid="edit-codex-fingerprint-mode-select" :options="codexFingerprintModeOptions" />
           </div>
         </div>
+        <CodexR2StatusCard
+          class="mt-4"
+          :state="codexR2State"
+          :loading="codexR2Loading"
+          :error="codexR2Error"
+          :draining="codexR2Draining"
+          @refresh="account && loadCodexR2State(account.id)"
+          @drain="handleCodexR2Drain"
+        />
       </div>
 
       <!-- OpenAI 订阅档位手动覆盖（Plus/Pro/Free），仅 OAuth 非影子账号 -->
@@ -3036,7 +3045,8 @@ import type {
   OpenAIEndpointCapability,
   OllamaCloudUsageState,
   GrokMediaEligibilityMode,
-  GrokMediaEligibilityState
+  GrokMediaEligibilityState,
+  CodexR2AccountState
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -3055,6 +3065,7 @@ import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
+import CodexR2StatusCard from '@/components/account/CodexR2StatusCard.vue'
 import {
   applyAntigravityProjectID,
   applyHeaderOverride,
@@ -3529,6 +3540,10 @@ const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
 const codexFingerprintMode = ref<CodexFingerprintMode>('off')
+const codexR2State = ref<CodexR2AccountState | null>(null)
+const codexR2Loading = ref(false)
+const codexR2Error = ref('')
+const codexR2Draining = ref(false)
 type CodexImageToolMode = 'inherit' | 'enabled' | 'disabled' | 'block'
 const codexImageToolMode = ref<CodexImageToolMode>('inherit')
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
@@ -4377,6 +4392,41 @@ async function loadTLSProfiles() {
   }
 }
 
+async function loadCodexR2State(accountID: number) {
+  if (props.account?.platform !== 'openai' || props.account?.type !== 'oauth') {
+    codexR2State.value = null
+    codexR2Error.value = ''
+    return
+  }
+  codexR2Loading.value = true
+  codexR2Error.value = ''
+  try {
+    codexR2State.value = await adminAPI.accounts.getCodexR2State(accountID, 7)
+  } catch (error: any) {
+    codexR2State.value = null
+    codexR2Error.value = error?.response?.data?.message || error?.message || t('common.error')
+  } finally {
+    codexR2Loading.value = false
+  }
+}
+
+async function handleCodexR2Drain() {
+  const accountID = props.account?.id
+  if (!accountID || !codexR2State.value || codexR2State.value.bindings.active <= 0) return
+  if (!window.confirm(t('admin.accounts.openai.codexR2DrainConfirm'))) return
+  codexR2Draining.value = true
+  codexR2Error.value = ''
+  try {
+    const result = await adminAPI.accounts.drainCodexR2Bindings(accountID)
+    appStore.showSuccess(t('admin.accounts.openai.codexR2DrainSuccess', { count: result.draining }))
+    await loadCodexR2State(accountID)
+  } catch (error: any) {
+    codexR2Error.value = error?.response?.data?.message || error?.message || t('common.error')
+  } finally {
+    codexR2Draining.value = false
+  }
+}
+
 watch(
   [() => props.show, () => props.account],
   ([show, newAccount], [wasShow, previousAccount]) => {
@@ -4386,6 +4436,7 @@ watch(
     if (!wasShow || newAccount !== previousAccount) {
       syncFormFromAccount(newAccount)
       loadTLSProfiles()
+      loadCodexR2State(newAccount.id)
     }
   },
   { immediate: true }

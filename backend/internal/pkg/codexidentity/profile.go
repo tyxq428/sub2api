@@ -3,8 +3,9 @@ package codexidentity
 import "strings"
 
 const (
-	Codex0154ProfileID = "codex-0.154-profile-r1"
-	Codex0155ProfileID = "codex-0.155.1-profile-r1"
+	Codex0154ProfileID             = "codex-0.154-profile-r1"
+	Codex0155ProfileID             = "codex-0.155.1-profile-r1"
+	Codex0154To0155CompatibilityID = "codex-0.154-0.155.1-compatible-r1"
 )
 
 type SemanticRole string
@@ -57,6 +58,46 @@ func ProfileByID(id string) (ProtocolProfile, bool) {
 	default:
 		return ProtocolProfile{}, false
 	}
+}
+
+// ResolveProfileReference resolves either an exact profile ID or an explicitly
+// source-qualified compatibility set. Compatibility sets remain fail-closed:
+// only versions named by the set can resolve, and conflicting/missing client
+// user agents never select a profile.
+func ResolveProfileReference(id string, snapshot RawSnapshot) (ProtocolProfile, bool) {
+	id = strings.TrimSpace(id)
+	if id != Codex0154To0155CompatibilityID {
+		return ProfileByID(id)
+	}
+
+	userAgents := make(map[string]struct{})
+	for _, field := range snapshot.Fields() {
+		if strings.ToLower(strings.TrimSpace(field.Name)) != "user-agent" {
+			continue
+		}
+		value := strings.TrimSpace(field.Value)
+		if value != "" {
+			userAgents[value] = struct{}{}
+		}
+	}
+	if len(userAgents) != 1 {
+		return ProtocolProfile{}, false
+	}
+	var userAgent string
+	for value := range userAgents {
+		userAgent = value
+	}
+	for _, profileID := range []string{Codex0154ProfileID, Codex0155ProfileID} {
+		profile, ok := ProfileByID(profileID)
+		if !ok {
+			continue
+		}
+		client, err := ResolveValidatedClientIdentity(profile, userAgent, "", "")
+		if err == nil && client.Recognized {
+			return profile, true
+		}
+	}
+	return ProtocolProfile{}, false
 }
 
 func (p ProtocolProfile) Role(field Field) SemanticRole {

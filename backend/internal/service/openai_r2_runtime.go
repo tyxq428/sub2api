@@ -170,11 +170,11 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 		stageCodexR2Attempt(c, nil)
 		return nil, nil
 	}
-	profile, ok := codexidentity.ProfileByID(policy.ReferenceProfile)
+	raw := codexidentity.Capture(headers, body, codexR2SnapshotLimits(s.cfg))
+	profile, ok := codexidentity.ResolveProfileReference(policy.ReferenceProfile, raw)
 	if !ok {
-		snapshot := codexidentity.Capture(headers, body, codexR2SnapshotLimits(s.cfg))
 		if observer := s.getCodexR2Observer(); observer != nil {
-			recordCodexR2Observation(observer, account.ID, snapshot, codexidentity.StageInput, purpose, policy.ReferenceProfile, "unknown_profile")
+			recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageInput, purpose, policy.ReferenceProfile, "unknown_profile")
 		}
 		if policy.Mode == codexidentity.ModeEnforce {
 			return nil, fmt.Errorf("unsupported codex r2 profile %q", policy.ReferenceProfile)
@@ -182,7 +182,6 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 		return nil, nil
 	}
 
-	raw := codexidentity.Capture(headers, body, codexR2SnapshotLimits(s.cfg))
 	if observer := s.getCodexR2Observer(); observer != nil {
 		recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageInput, purpose, profile.ID, "observed")
 	}
@@ -315,7 +314,7 @@ func (s *OpenAIGatewayService) recordCodexR2Actual(account *Account, attempt *co
 	}
 	if observer := s.getCodexR2Observer(); observer != nil {
 		actual := codexidentity.Capture(headers, body, codexR2SnapshotLimits(s.cfg))
-		recordCodexR2Observation(observer, account.ID, actual, codexidentity.StageActual, attempt.Purpose, attempt.Policy.ReferenceProfile, result)
+		recordCodexR2Observation(observer, account.ID, actual, codexidentity.StageActual, attempt.Purpose, attempt.Plan.ProfileID, result)
 	}
 }
 

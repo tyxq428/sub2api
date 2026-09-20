@@ -47,3 +47,37 @@ func TestCodex0155ProfileIsExplicitAndVersionQualified(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, futurePlan.Validate(), "unknown future client versions must remain fail-closed")
 }
+
+func TestCompatibilityProfileSelectsOnlyQualifiedKnownVersions(t *testing.T) {
+	base := http.Header{
+		"Originator":          {"codex-tui"},
+		"Session-Id":          {"0199a1b2-c3d4-7e5f-8a9b-111111111111"},
+		"Thread-Id":           {"0199a1b2-c3d4-7e5f-8a9b-222222222222"},
+		"X-Client-Request-Id": {"0199a1b2-c3d4-7e5f-8a9b-222222222222"},
+	}
+	body := []byte(`{"prompt_cache_key":"0199a1b2-c3d4-7e5f-8a9b-111111111111"}`)
+
+	for _, tc := range []struct {
+		version string
+		wantID  string
+		ok      bool
+	}{
+		{version: "0.154.0", wantID: Codex0154ProfileID, ok: true},
+		{version: "0.155.1", wantID: Codex0155ProfileID, ok: true},
+		{version: "0.156.0", ok: false},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			headers := base.Clone()
+			headers.Set("User-Agent", "codex-tui/"+tc.version+" (Windows 10.0.26200; x86_64) WindowsTerminal")
+			headers.Set("Version", tc.version)
+			profile, ok := ResolveProfileReference(
+				Codex0154To0155CompatibilityID,
+				Capture(headers, body, DefaultLimits()),
+			)
+			require.Equal(t, tc.ok, ok)
+			if tc.ok {
+				require.Equal(t, tc.wantID, profile.ID)
+			}
+		})
+	}
+}

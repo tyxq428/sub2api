@@ -108,7 +108,7 @@ func main() {
 
 	db, err := sql.Open("postgres", dsn)
 	must(err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	must(db.PingContext(ctx))
 	var actualDB string
 	must(db.QueryRowContext(ctx, "SELECT current_database()").Scan(&actualDB))
@@ -189,7 +189,7 @@ func main() {
 	rows, err := db.QueryContext(ctx,
 		"SELECT stage,result,total_events FROM codex_r2_shadow_daily WHERE account_id=$1 ORDER BY stage,result", accountID)
 	must(err)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	seen := map[string]bool{}
 	for rows.Next() {
 		var stage, result string

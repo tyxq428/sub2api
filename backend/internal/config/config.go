@@ -944,6 +944,59 @@ const (
 	ImageConcurrencyOverflowModeWait   = "wait"
 )
 
+const (
+	CodexR2ModeOff     = "off"
+	CodexR2ModeShadow  = "shadow"
+	CodexR2ModeEnforce = "enforce"
+
+	CodexR2ClientUAModeLegacyCanonical   = "legacy_canonical"
+	CodexR2ClientUAModePreserveValidated = "preserve_validated"
+)
+
+// GatewayCodexR2Config is intentionally independent from the R1 rollout bit.
+// An account must be explicitly listed and a durable session admission must be
+// created before enforce may be used by later implementation stages.
+type GatewayCodexR2Config struct {
+	Mode                   string  `mapstructure:"mode"`
+	ClientUAMode           string  `mapstructure:"client_ua_mode"`
+	ShadowTelemetry        bool    `mapstructure:"shadow_telemetry"`
+	ReferenceProfile       string  `mapstructure:"reference_profile"`
+	NewSessionAdmission    bool    `mapstructure:"new_session_admission"`
+	EligibleAccountIDs     []int64 `mapstructure:"eligible_account_ids"`
+	TelemetryHMACKey       string  `mapstructure:"telemetry_hmac_key"`
+	MappingHMACKey         string  `mapstructure:"mapping_hmac_key"`
+	MappingKeyEpoch        string  `mapstructure:"mapping_key_epoch"`
+	MaxMetadataBytes       int     `mapstructure:"max_metadata_bytes"`
+	MaxIdentityHeaderBytes int     `mapstructure:"max_identity_header_bytes"`
+	MaxMetadataDepth       int     `mapstructure:"max_metadata_depth"`
+	MaxIdentityValueBytes  int     `mapstructure:"max_identity_value_bytes"`
+	MaxUserAgentBytes      int     `mapstructure:"max_user_agent_bytes"`
+	ObserverQueueCapacity  int     `mapstructure:"observer_queue_capacity"`
+	ObserverEventMaxBytes  int     `mapstructure:"observer_event_max_bytes"`
+	ObserverBatchSize      int     `mapstructure:"observer_batch_size"`
+	ObserverFlushSeconds   int     `mapstructure:"observer_flush_seconds"`
+}
+
+func NormalizeCodexR2Mode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case CodexR2ModeShadow:
+		return CodexR2ModeShadow
+	case CodexR2ModeEnforce:
+		return CodexR2ModeEnforce
+	default:
+		return CodexR2ModeOff
+	}
+}
+
+func NormalizeCodexR2ClientUAMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case CodexR2ClientUAModePreserveValidated:
+		return CodexR2ClientUAModePreserveValidated
+	default:
+		return CodexR2ClientUAModeLegacyCanonical
+	}
+}
+
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
 	// 等待上游响应头的超时时间（秒），0表示无超时
@@ -1006,6 +1059,9 @@ type GatewayConfig struct {
 	OpenAICompactModel string `mapstructure:"openai_compact_model"`
 	// OpenAIWS: OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
 	OpenAIWS GatewayOpenAIWSConfig `mapstructure:"openai_ws"`
+	// CodexR2: semantic identity v2 / local shadow observer. The zero/default
+	// configuration is fully off and does not inherit the R1 canary allowlist.
+	CodexR2 GatewayCodexR2Config `mapstructure:"codex_r2"`
 	// Live: ChatGPT Frameless Live 会话配置。
 	Live GatewayLiveConfig `mapstructure:"live"`
 	// OpenAIScheduler: OpenAI 高级调度器粘性逃逸配置
@@ -1840,6 +1896,10 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	}
 
 	cfg.RunMode = NormalizeRunMode(cfg.RunMode)
+	cfg.Gateway.CodexR2.Mode = NormalizeCodexR2Mode(cfg.Gateway.CodexR2.Mode)
+	cfg.Gateway.CodexR2.ClientUAMode = NormalizeCodexR2ClientUAMode(cfg.Gateway.CodexR2.ClientUAMode)
+	cfg.Gateway.CodexR2.ReferenceProfile = strings.TrimSpace(cfg.Gateway.CodexR2.ReferenceProfile)
+	cfg.Gateway.CodexR2.TelemetryHMACKey = strings.TrimSpace(cfg.Gateway.CodexR2.TelemetryHMACKey)
 	cfg.Server.Mode = strings.ToLower(strings.TrimSpace(cfg.Server.Mode))
 	if cfg.Server.Mode == "" {
 		cfg.Server.Mode = "debug"
@@ -2381,6 +2441,24 @@ func setDefaults() {
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
+	viper.SetDefault("gateway.codex_r2.mode", CodexR2ModeOff)
+	viper.SetDefault("gateway.codex_r2.client_ua_mode", CodexR2ClientUAModeLegacyCanonical)
+	viper.SetDefault("gateway.codex_r2.shadow_telemetry", false)
+	viper.SetDefault("gateway.codex_r2.reference_profile", "codex-0.154-profile-r1")
+	viper.SetDefault("gateway.codex_r2.new_session_admission", false)
+	viper.SetDefault("gateway.codex_r2.eligible_account_ids", []int64{})
+	viper.SetDefault("gateway.codex_r2.telemetry_hmac_key", "")
+	viper.SetDefault("gateway.codex_r2.mapping_hmac_key", "")
+	viper.SetDefault("gateway.codex_r2.mapping_key_epoch", "epoch-1")
+	viper.SetDefault("gateway.codex_r2.max_metadata_bytes", 256*1024)
+	viper.SetDefault("gateway.codex_r2.max_identity_header_bytes", 16*1024)
+	viper.SetDefault("gateway.codex_r2.max_metadata_depth", 32)
+	viper.SetDefault("gateway.codex_r2.max_identity_value_bytes", 1024)
+	viper.SetDefault("gateway.codex_r2.max_user_agent_bytes", 1024)
+	viper.SetDefault("gateway.codex_r2.observer_queue_capacity", 4096)
+	viper.SetDefault("gateway.codex_r2.observer_event_max_bytes", 16*1024)
+	viper.SetDefault("gateway.codex_r2.observer_batch_size", 128)
+	viper.SetDefault("gateway.codex_r2.observer_flush_seconds", 5)
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
@@ -2650,7 +2728,64 @@ func setEnvReachableDefaults() {
 	viper.SetDefault("dingtalk_connect.sync_corp_email_attr_name", "")
 }
 
+func validateCodexR2Config(cfg GatewayCodexR2Config) error {
+	if cfg.Mode != CodexR2ModeOff && cfg.Mode != CodexR2ModeShadow && cfg.Mode != CodexR2ModeEnforce {
+		return fmt.Errorf("gateway.codex_r2.mode must be one of: off/shadow/enforce")
+	}
+	if cfg.ClientUAMode != CodexR2ClientUAModeLegacyCanonical && cfg.ClientUAMode != CodexR2ClientUAModePreserveValidated {
+		return fmt.Errorf("gateway.codex_r2.client_ua_mode must be one of: legacy_canonical/preserve_validated")
+	}
+	if cfg.Mode != CodexR2ModeOff {
+		if len(cfg.EligibleAccountIDs) == 0 {
+			return fmt.Errorf("gateway.codex_r2.eligible_account_ids is required when R2 mode is active")
+		}
+		seen := make(map[int64]struct{}, len(cfg.EligibleAccountIDs))
+		for _, id := range cfg.EligibleAccountIDs {
+			if id <= 0 {
+				return fmt.Errorf("gateway.codex_r2.eligible_account_ids must contain positive account ids")
+			}
+			if _, exists := seen[id]; exists {
+				return fmt.Errorf("gateway.codex_r2.eligible_account_ids must not contain duplicates")
+			}
+			seen[id] = struct{}{}
+		}
+		if cfg.ReferenceProfile == "" {
+			return fmt.Errorf("gateway.codex_r2.reference_profile is required when R2 mode is active")
+		}
+	}
+	if cfg.ShadowTelemetry && len([]byte(cfg.TelemetryHMACKey)) < 32 {
+		return fmt.Errorf("gateway.codex_r2.telemetry_hmac_key must be at least 32 bytes when shadow telemetry is enabled")
+	}
+	if cfg.Mode != CodexR2ModeOff {
+		if len([]byte(cfg.MappingHMACKey)) < 32 {
+			return fmt.Errorf("gateway.codex_r2.mapping_hmac_key must be at least 32 bytes when R2 is active")
+		}
+		if strings.TrimSpace(cfg.MappingKeyEpoch) == "" {
+			return fmt.Errorf("gateway.codex_r2.mapping_key_epoch is required when R2 is active")
+		}
+	}
+	for name, value := range map[string]int{
+		"max_metadata_bytes":        cfg.MaxMetadataBytes,
+		"max_identity_header_bytes": cfg.MaxIdentityHeaderBytes,
+		"max_metadata_depth":        cfg.MaxMetadataDepth,
+		"max_identity_value_bytes":  cfg.MaxIdentityValueBytes,
+		"max_user_agent_bytes":      cfg.MaxUserAgentBytes,
+		"observer_queue_capacity":   cfg.ObserverQueueCapacity,
+		"observer_event_max_bytes":  cfg.ObserverEventMaxBytes,
+		"observer_batch_size":       cfg.ObserverBatchSize,
+		"observer_flush_seconds":    cfg.ObserverFlushSeconds,
+	} {
+		if value <= 0 {
+			return fmt.Errorf("gateway.codex_r2.%s must be positive", name)
+		}
+	}
+	return nil
+}
+
 func (c *Config) Validate() error {
+	if err := validateCodexR2Config(c.Gateway.CodexR2); err != nil {
+		return err
+	}
 	forwardedClientIPHeaders, err := NormalizeForwardedClientIPHeaders(c.Security.ForwardedClientIPHeaders)
 	if err != nil {
 		return fmt.Errorf("security.forwarded_client_ip_headers: %w", err)

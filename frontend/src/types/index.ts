@@ -1519,6 +1519,42 @@ export interface GrokMediaEligibilityState {
   reason: string
 }
 
+export interface CodexR2BindingCounts {
+  active: number
+  draining: number
+  retired: number
+}
+
+export interface CodexR2ShadowDaily {
+  bucket_date: string
+  stage: string
+  purpose: string
+  profile: string
+  result: string
+  total_events: number
+  complete_events: number
+  incomplete_events: number
+  conflict_events: number
+  unknown_events: number
+}
+
+export interface CodexR2AccountState {
+  account_id: number
+  configured_mode: string
+  effective_mode: string
+  reason: string
+  client_ua_mode: string
+  reference_profile: string
+  shadow_telemetry: boolean
+  new_session_admission: boolean
+  eligible: boolean
+  fingerprint_mode: string
+  mapping_key_configured: boolean
+  mapping_key_epoch: string
+  bindings: CodexR2BindingCounts
+  shadow: CodexR2ShadowDaily[]
+}
+
 export interface CheckMixedChannelRequest {
   platform: AccountPlatform
   group_ids: number[]

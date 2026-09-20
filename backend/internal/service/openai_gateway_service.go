@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/codexidentity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -479,6 +480,10 @@ type OpenAIGatewayService struct {
 	userPlatformQuotaRepo UserPlatformQuotaRepository
 	liveAttestation       liveattestation.Provider
 	liveAttestationCipher SecretEncryptor
+	codexR2State          codexR2RuntimeStateStore
+	codexR2ObserverOnce   sync.Once
+	codexR2Observer       *codexidentity.Observer
+	codexR2ObserverErr    error
 
 	openaiWSPoolOnce               sync.Once
 	openaiWSStateStoreOnce         sync.Once
@@ -595,6 +600,15 @@ func NewOpenAIGatewayService(
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc
+}
+
+// SetCodexR2StateService attaches the durable R2 correctness/diagnostic store.
+// Keep it separate from the long-standing gateway constructor so tests and
+// non-server embeddings that do not use R2 remain source-compatible.
+func (s *OpenAIGatewayService) SetCodexR2StateService(state *CodexR2StateService) {
+	if s != nil {
+		s.codexR2State = state
+	}
 }
 
 // ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）

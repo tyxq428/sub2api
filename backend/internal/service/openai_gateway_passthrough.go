@@ -180,35 +180,32 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 		reqStream = gjson.GetBytes(body, "stream").Bool()
 
-		accountScopedBody, accountScoped, scopeErr := applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
-		if scopeErr != nil {
-			return nil, scopeErr
-		}
-		if accountScoped {
-			body = accountScopedBody
-		}
-
 		stageCodexFingerprintIDs(c, nil)
-		// 指纹收敛：与非透传路径同门控（仅 OAuth、legacy compact 形态跳过）。
-		// 一次性解析收敛 ID：请求体 client_metadata 在此改写（raw 字节外科
-		// 手术，透传热路径禁全量 Unmarshal），出站头改写由请求构造器读取
-		// context 中的同一份 IDs 完成（turn_id 等随机字段两侧必须一致）。
-		if !isOpenAIResponsesCompactPath(c) {
-			var clientHeaders http.Header
-			if c != nil && c.Request != nil {
-				clientHeaders = c.Request.Header
+		if !codexR2Enforcing(c) {
+			accountScopedBody, accountScoped, scopeErr := applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+			if scopeErr != nil {
+				return nil, scopeErr
 			}
-			fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
-			if fpIDs != nil {
-				fpBody, fpChanged, fpErr := applyCodexFingerprintClientMetadataRaw(body, fpIDs)
-				if fpErr != nil {
-					return nil, fpErr
-				}
-				if fpChanged {
-					body = fpBody
-				}
+			if accountScoped {
+				body = accountScopedBody
 			}
-			stageCodexFingerprintIDs(c, fpIDs)
+			if !isOpenAIResponsesCompactPath(c) {
+				var clientHeaders http.Header
+				if c != nil && c.Request != nil {
+					clientHeaders = c.Request.Header
+				}
+				fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
+				if fpIDs != nil {
+					fpBody, fpChanged, fpErr := applyCodexFingerprintClientMetadataRaw(body, fpIDs)
+					if fpErr != nil {
+						return nil, fpErr
+					}
+					if fpChanged {
+						body = fpBody
+					}
+				}
+				stageCodexFingerprintIDs(c, fpIDs)
+			}
 		}
 	}
 	if account != nil && account.IsOpenAI() {
@@ -619,7 +616,11 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	if c != nil && c.Request != nil {
 		for key, values := range c.Request.Header {
 			lower := strings.ToLower(strings.TrimSpace(key))
-			if !isOpenAIPassthroughAllowedRequestHeader(lower, allowTimeoutHeaders, account) {
+			allowed := isOpenAIPassthroughAllowedRequestHeader(lower, allowTimeoutHeaders, account)
+			if !allowed && allowCodexR2IdentityIngressHeader(c, lower) {
+				allowed = true
+			}
+			if !allowed {
 				continue
 			}
 			for _, v := range values {
@@ -647,6 +648,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	}
 
 	// OAuth 透传到 ChatGPT internal API 时补齐必要头。
+	r2Enforce := codexR2Enforcing(c)
 	if account.UsesOpenAICodexProtocol() {
 		// Current Codex OAuth HTTP no longer negotiates the legacy Responses
 		// experiment. Passthrough may receive it from an older client, so remove
@@ -657,46 +659,47 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		if err := resolveAndSetOpenAIChatGPTAccountHeaders(ctx, s.accountRepo, req.Header, account); err != nil {
 			return nil, fmt.Errorf("resolve chatgpt account headers: %w", err)
 		}
-		apiKeyID := getAPIKeyIDFromContext(c)
-		// 先保存客户端原始值，再做 compact 补充，避免后续统一隔离时读到已处理的值。
-		clientSessionID := strings.TrimSpace(req.Header.Get("session_id"))
-		clientConversationID := strings.TrimSpace(req.Header.Get("conversation_id"))
-		if account.IsCodexR1CanaryEnabled() {
-			if hyphenated := strings.TrimSpace(req.Header.Get("session-id")); hyphenated != "" {
-				clientSessionID = hyphenated
-			}
-			if hyphenated := strings.TrimSpace(req.Header.Get("conversation-id")); hyphenated != "" {
-				clientConversationID = hyphenated
-			}
-			req.Header.Del("session-id")
-			req.Header.Del("conversation-id")
-		}
 		if isOpenAIResponsesCompactPath(c) {
 			req.Header.Set("accept", "application/json")
-			if req.Header.Get("version") == "" {
+			if !r2Enforce && req.Header.Get("version") == "" {
 				req.Header.Set("version", CodexCanonicalClientVersionForAccount(account))
-			}
-			if clientSessionID == "" {
-				clientSessionID = resolveOpenAICompactSessionID(c)
 			}
 		} else if req.Header.Get("accept") == "" {
 			req.Header.Set("accept", "text/event-stream")
 		}
-		if req.Header.Get("originator") == "" {
+		if !r2Enforce && req.Header.Get("originator") == "" {
 			req.Header.Set("originator", resolveCodexOutboundIdentityForAccount(account, "").originator)
 		}
-		// 用隔离后的 session 标识符覆盖客户端透传值，防止跨用户会话碰撞。
-		if clientSessionID == "" {
-			clientSessionID = promptCacheKey
-		}
-		if clientConversationID == "" {
-			clientConversationID = promptCacheKey
-		}
-		if clientSessionID != "" {
-			req.Header.Set("session_id", isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), clientSessionID))
-		}
-		if clientConversationID != "" {
-			req.Header.Set("conversation_id", isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), clientConversationID))
+		if !r2Enforce {
+			apiKeyID := getAPIKeyIDFromContext(c)
+			// Legacy/R1 routing/session isolation remains unchanged outside R2.
+			clientSessionID := strings.TrimSpace(req.Header.Get("session_id"))
+			clientConversationID := strings.TrimSpace(req.Header.Get("conversation_id"))
+			if account.IsCodexR1CanaryEnabled() {
+				if hyphenated := strings.TrimSpace(req.Header.Get("session-id")); hyphenated != "" {
+					clientSessionID = hyphenated
+				}
+				if hyphenated := strings.TrimSpace(req.Header.Get("conversation-id")); hyphenated != "" {
+					clientConversationID = hyphenated
+				}
+				req.Header.Del("session-id")
+				req.Header.Del("conversation-id")
+			}
+			if isOpenAIResponsesCompactPath(c) && clientSessionID == "" {
+				clientSessionID = resolveOpenAICompactSessionID(c)
+			}
+			if clientSessionID == "" {
+				clientSessionID = promptCacheKey
+			}
+			if clientConversationID == "" {
+				clientConversationID = promptCacheKey
+			}
+			if clientSessionID != "" {
+				req.Header.Set("session_id", isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), clientSessionID))
+			}
+			if clientConversationID != "" {
+				req.Header.Set("conversation_id", isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), clientConversationID))
+			}
 		}
 	} else if isOpenAIResponsesCompactPath(c) {
 		// 透传白名单会放行客户端的 Accept: text/event-stream；compact 上游是
@@ -705,32 +708,32 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		req.Header.Set("accept", "application/json")
 	}
 
-	// 透传模式也支持账户自定义 User-Agent 与 ForceCodexCLI 兜底。
-	customUA := account.GetOpenAIUserAgent()
-	if customUA != "" {
-		req.Header.Set("user-agent", customUA)
-	}
-	if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
-		req.Header.Set("user-agent", CodexCanonicalUserAgentForAccount(account))
-	}
-	applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
-	if account.IsCodexR1CanaryEnabled() {
-		if scoped := strings.TrimSpace(req.Header.Get("session_id")); scoped != "" {
-			req.Header.Set("session-id", scoped)
+	if r2Enforce {
+		if err := applyCodexR2HeaderPlan(c, req.Header); err != nil {
+			return nil, fmt.Errorf("project codex r2 passthrough headers: %w", err)
 		}
-		if scoped := strings.TrimSpace(req.Header.Get("conversation_id")); scoped != "" {
-			req.Header.Set("conversation-id", scoped)
+	} else {
+		// Legacy/R1 identity writers remain mutually exclusive with R2 enforce.
+		customUA := account.GetOpenAIUserAgent()
+		if customUA != "" {
+			req.Header.Set("user-agent", customUA)
 		}
-	}
-
-	// 指纹收敛：使用 forwardOpenAIPassthrough 中预计算的收敛 ID 改写出站头，
-	// 与请求体 client_metadata 共享同一份 IDs（与非透传路径相同的相对位置：
-	// 会话隔离之后、终态身份收口之前）。
-	applyStagedCodexFingerprintHeaders(c, account, req.Header)
-	// 终态收口：透传路径的 OAuth 与非透传完全一致，同样强制统一出站身份
-	// （User-Agent / originator / version 同源自洽），客户端自报身份不会到达上游。
-	if account.UsesOpenAICodexProtocol() {
-		enforceCodexIdentityHeadersForAccount(req.Header, account, s.codexIdentityOverrideUA(account))
+		if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
+			req.Header.Set("user-agent", CodexCanonicalUserAgentForAccount(account))
+		}
+		applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+		if account.IsCodexR1CanaryEnabled() {
+			if scoped := strings.TrimSpace(req.Header.Get("session_id")); scoped != "" {
+				req.Header.Set("session-id", scoped)
+			}
+			if scoped := strings.TrimSpace(req.Header.Get("conversation_id")); scoped != "" {
+				req.Header.Set("conversation-id", scoped)
+			}
+		}
+		applyStagedCodexFingerprintHeaders(c, account, req.Header)
+		if account.UsesOpenAICodexProtocol() {
+			enforceCodexIdentityHeadersForAccount(req.Header, account, s.codexIdentityOverrideUA(account))
+		}
 	}
 
 	if req.Header.Get("content-type") == "" {
@@ -744,6 +747,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
+	s.recordCodexR2Actual(account, stagedCodexR2Attempt(c), req.Header, body, "prepared")
 	if err := applyOpenAIResponsesRequestCompression(c, account, req, body); err != nil {
 		return nil, fmt.Errorf("compress openai responses request: %w", err)
 	}

@@ -28,7 +28,8 @@ import type {
   OllamaCloudUsageSettings,
   OllamaCloudUsageState,
   GrokMediaEligibilityMode,
-  GrokMediaEligibilityState
+  GrokMediaEligibilityState,
+  CodexR2AccountState
 } from '@/types'
 
 /**
@@ -255,6 +256,18 @@ export async function updateGrokMediaEligibility(
     `/admin/accounts/${id}/grok-media-eligibility`,
     { mode }
   )
+  return data
+}
+
+export async function getCodexR2State(id: number, days = 7): Promise<CodexR2AccountState> {
+  const { data } = await apiClient.get<CodexR2AccountState>(`/admin/accounts/${id}/codex-r2`, {
+    params: { days }
+  })
+  return data
+}
+
+export async function drainCodexR2Bindings(id: number): Promise<{ draining: number }> {
+  const { data } = await apiClient.post<{ draining: number }>(`/admin/accounts/${id}/codex-r2/drain`)
   return data
 }
 
@@ -1081,6 +1094,8 @@ export const accountsAPI = {
   update,
   getGrokMediaEligibility,
   updateGrokMediaEligibility,
+  getCodexR2State,
+  drainCodexR2Bindings,
   checkMixedChannelRisk,
   delete: deleteAccount,
   toggleStatus,

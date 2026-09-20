@@ -104,6 +104,9 @@ func codexR2WireContractForRequest(
 	if !ok {
 		return mode, nil, fmt.Errorf("no codex r2.2 wire contract for profile %q", profile.ID)
 	}
+	if mode == config.CodexR2WireModeEnforce && !contract.EvidenceComplete {
+		return mode, nil, fmt.Errorf("codex r2.2 wire contract %q lacks complete pinned reference evidence", contract.ID)
+	}
 	if !contract.SupportsPurpose(string(purpose)) {
 		return mode, nil, fmt.Errorf("codex r2.2 wire contract %q does not support purpose %q", contract.ID, purpose)
 	}

@@ -34,6 +34,16 @@ func TestCodexR22WireShadowResolvesPinnedContract(t *testing.T) {
 	require.Equal(t, config.CodexR2WireModeShadow, mode)
 	require.NotNil(t, contract)
 	require.Equal(t, "codex-wire-0.155.1-r1", contract.ID)
+	require.False(t, contract.EvidenceComplete)
+}
+
+func TestCodexR22WireEnforceRejectsIncompletePinnedEvidence(t *testing.T) {
+	cfg := syntheticR2Config()
+	cfg.Gateway.CodexR2.WireContractMode = config.CodexR2WireModeEnforce
+	profile, ok := codexidentity.ProfileByID(codexidentity.Codex0155ProfileID)
+	require.True(t, ok)
+	_, _, err := codexR2WireContractForRequest(cfg, profile, codexidentity.PurposeInference, nil, nil)
+	require.ErrorContains(t, err, "lacks complete pinned reference evidence")
 }
 
 func TestCodexR22WireRejectsMalformedCanonicalMetadata(t *testing.T) {

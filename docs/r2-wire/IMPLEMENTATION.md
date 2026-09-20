@@ -59,5 +59,8 @@ selection.
   be2951ea34f0d295ed0becf97079f92fa5f6950e, but fresh per-file hash
   collection is currently marked incomplete due transient GitHub/raw transport
   failures during this isolated task.
+- Because that evidence is incomplete, 0.155.1 may be evaluated in R2.2
+  shadow but is rejected by R2.2 enforce. Existing r2-v1 compatibility is not
+  changed by this evidence gate.
 - Missing source refresh is deliberately represented as an evidence gap, not
   silently replaced by moving main.

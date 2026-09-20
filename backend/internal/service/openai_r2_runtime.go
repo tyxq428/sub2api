@@ -219,6 +219,13 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 		err = plan.Validate()
 	}
 	if err != nil {
+		for _, conflict := range plan.Conflicts {
+			logger.L().Warn("codex_r2_plan_conflict",
+				zap.Int64("account_id", account.ID),
+				zap.String("code", conflict.Code),
+				zap.String("role", string(conflict.Role)),
+			)
+		}
 		if observer := s.getCodexR2Observer(); observer != nil {
 			recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageProposed, purpose, profile.ID, "plan_conflict")
 		}

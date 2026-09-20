@@ -2,7 +2,10 @@ package codexidentity
 
 import "strings"
 
-const Codex0154ProfileID = "codex-0.154-profile-r1"
+const (
+	Codex0154ProfileID = "codex-0.154-profile-r1"
+	Codex0155ProfileID = "codex-0.155.1-profile-r1"
+)
 
 type SemanticRole string
 
@@ -41,6 +44,14 @@ func ProfileByID(id string) (ProtocolProfile, bool) {
 			ReferenceTag:               "rust-v0.154.0",
 			ReferenceCommit:            "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
 			ClientVersion:              "0.154.0",
+			ClientRequestFollowsThread: true,
+		}, true
+	case Codex0155ProfileID:
+		return ProtocolProfile{
+			ID:                         Codex0155ProfileID,
+			ReferenceTag:               "rust-v0.155.1",
+			ReferenceCommit:            "be2951ea34f0d295ed0becf97079f92fa5f6950e",
+			ClientVersion:              "0.155.1",
 			ClientRequestFollowsThread: true,
 		}, true
 	default:

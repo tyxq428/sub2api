@@ -11,8 +11,10 @@ describe('VersionBadge build identity', () => {
   it('renders build identity next to semantic version without replacing it', () => {
     expect(componentSource).toContain('v{{ currentVersion }}')
     expect(componentSource).toContain('· {{ buildIdentity }}')
-    expect(componentSource).toContain('appStore.buildLabel.trim()')
-    expect(componentSource).toContain('appStore.buildCommit.trim()')
+    expect(componentSource).toContain("import.meta.env.VITE_BUILD_LABEL")
+    expect(componentSource).toContain("import.meta.env.VITE_BUILD_COMMIT")
+    expect(componentSource).toContain('appStore.buildLabel.trim() || compiledBuildLabel')
+    expect(componentSource).toContain('appStore.buildCommit.trim() || compiledBuildCommit')
     expect(componentSource).toContain('commit.slice(0, 8)')
   })
 })

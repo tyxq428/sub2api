@@ -684,9 +684,11 @@ const latestVersion = computed(() => appStore.latestVersion)
 const hasUpdate = computed(() => appStore.hasUpdate)
 const releaseInfo = computed(() => appStore.releaseInfo)
 const buildType = computed(() => appStore.buildType)
+const compiledBuildLabel = String(import.meta.env.VITE_BUILD_LABEL || '').trim()
+const compiledBuildCommit = String(import.meta.env.VITE_BUILD_COMMIT || '').trim()
 const buildIdentity = computed(() => {
-  const label = appStore.buildLabel.trim()
-  const commit = appStore.buildCommit.trim()
+  const label = appStore.buildLabel.trim() || compiledBuildLabel
+  const commit = appStore.buildCommit.trim() || compiledBuildCommit
   if (!label) return ''
   if (!commit) return label
   return `${label} ${commit.slice(0, 8)}`

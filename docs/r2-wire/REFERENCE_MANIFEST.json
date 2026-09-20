@@ -20,14 +20,20 @@
       "contract_id": "codex-wire-0.155.1-r1",
       "reference_tag": "rust-v0.155.1",
       "reference_commit": "be2951ea34f0d295ed0becf97079f92fa5f6950e",
-      "evidence_complete": false,
-      "files": [],
-      "evidence_gaps": [
-        "Pinned source commit is fixed in the existing validated R2 profile, but exact per-file hashes could not be refreshed in this task because GitHub/raw fetches failed with TLS/DNS transport errors.",
-        "The 0.155.1 contract remains code-registered for the already validated compatibility profile, but release review must not treat missing refreshed source hashes as new independent official-source evidence."
+      "evidence_complete": true,
+      "files": [
+        {"path":"codex-rs/core/src/responses_metadata.rs","git_blob_sha1":"5989d4eed1e17505412b87905d117e10fdf27e7c","sha256":"56683401103f3d398ecb9a1ff3afad1a42077a9f4ac538b64eb76a26c6fd3554"},
+        {"path":"codex-rs/core/tests/suite/prompt_cache_key.rs","git_blob_sha1":"5e258a936f542c5342612c11bf76d4471472f390","sha256":"4fe4973eafd441a456cd9e03715f4d4ca45dddd3d1ae92a30eb37fbc55fdc89a"},
+        {"path":"codex-rs/login/src/auth/default_client.rs","git_blob_sha1":"cd4cbd5431a785b0a1f2a9963b1536d2edf135ec","sha256":"e50fc9a61d4b91127e2c248e15d45e735831e4070c396fa8efbc693717cfb23b"},
+        {"path":"codex-rs/codex-api/src/requests/headers.rs","git_blob_sha1":"c5cede8ac63c8d7da8aafc6323795e24c98f8da2","sha256":"98c9579a8f17327fda1792ffbf22e8d09241fdc79620c37b699d94cd9637cd47"},
+        {"path":"codex-rs/core/src/client.rs","git_blob_sha1":"d46a98ed315dacdb33cbd7a25a7ce045ad08e03c","sha256":"26d1d704a578534fe840e4e6d3df502e44a7bdc4a89e69961740d47f2245da2a"},
+        {"path":"codex-rs/protocol/src/thread_id.rs","git_blob_sha1":"2e0f21561b7bdc8f58f330e8a7132a3f70a95257","sha256":"6f1f15040fd6cd6e63ecedd632fad5d7efd7d9404356d54a22f521157c127b7d"},
+        {"path":"codex-rs/codex-api/tests/clients.rs","git_blob_sha1":"af43022417fdc046726280f237c7e39a1195eaff","sha256":"263286755c5012193ba2f0809cfb6d3f0db2b3c9d320f0f49ec579bd3897b191"},
+        {"path":"codex-rs/login/src/auth/change_state.rs","git_blob_sha1":"27d13992bd3a4ea0898ce8842e942415ae2988bc","sha256":"f87d4d87d8b6737a78931cfff9f0c6b62f32cc87c10e73262c0bc7fc04445288"},
+        {"path":"codex-rs/login/src/auth/change_state_tests.rs","git_blob_sha1":"4022fbbfe809535deddacc1cf63bcedf7ce6453a","sha256":"7ea49d68e852e3f808a60a8e3aee93b490486227d430f03d1a5c3878907bd4bd"}
       ]
     }
   ],
   "moving_main_policy": "Moving main may be inspected only for drift discovery. It cannot mutate the runtime contract registry or enable a new client version.",
-  "production_policy": "This manifest is development evidence only. R2.2 wire_contract_mode remains off by default and production activation requires a separate approval."
+  "production_policy": "This manifest is fixed-source evidence only. R2.2 wire_contract_mode remains off by default; any production activation remains separately staged and gated."
 }

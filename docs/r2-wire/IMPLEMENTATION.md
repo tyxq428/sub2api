@@ -56,11 +56,14 @@ selection.
 - 0.154.0 pinned file hashes are inherited from the immutable original R2
   manifest.
 - 0.155.1 is pinned to commit
-  be2951ea34f0d295ed0becf97079f92fa5f6950e, but fresh per-file hash
-  collection is currently marked incomplete due transient GitHub/raw transport
-  failures during this isolated task.
-- Because that evidence is incomplete, 0.155.1 may be evaluated in R2.2
-  shadow but is rejected by R2.2 enforce. Existing r2-v1 compatibility is not
-  changed by this evidence gate.
-- Missing source refresh is deliberately represented as an evidence gap, not
-  silently replaced by moving main.
+  be2951ea34f0d295ed0becf97079f92fa5f6950e and its fixed-source files have
+  been refreshed with both Git blob ids and SHA-256 digests.
+- That refresh exposed two version-specific behaviors that are now part of the
+  conformance gate rather than guessed from 0.154:
+  - 0.155.1 remote compaction v2 uses the normal streaming Responses path with
+    a compaction trigger/request_kind instead of the removed unary
+    /responses/compact client path;
+  - cached WebSocket/turn routing state is invalidated when the authenticated
+    ChatGPT owner changes. R2.2 0.155.1 enforce therefore requires both
+    workspace/account id and ChatGPT user id to be known.
+- Existing r2-v1 sessions are still never reinterpreted by these R2.2 gates.

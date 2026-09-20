@@ -60,14 +60,28 @@ type codexR2Attempt struct {
 	WSCompatibility string
 }
 
-func codexR2Purpose(c *gin.Context, websocket bool) codexidentity.Purpose {
+func codexR2Purpose(c *gin.Context, websocket bool, body []byte) codexidentity.Purpose {
 	if websocket {
 		return codexidentity.PurposeWebSocket
 	}
-	if isOpenAIResponsesCompactPath(c) {
+	if isOpenAIResponsesCompactPath(c) ||
+		isOpenAINativeCompactionV2(c) ||
+		openAIWSExecutionTurnMetadata(c, body).RequestKind == openAIWSRequestKindCompaction {
 		return codexidentity.PurposeCompact
 	}
 	return codexidentity.PurposeInference
+}
+
+func validateCodexR22AuthOwner(profile codexidentity.ProtocolProfile, account *Account) error {
+	if profile.ID != codexidentity.Codex0155ProfileID {
+		return nil
+	}
+	if account == nil ||
+		strings.TrimSpace(account.GetChatGPTAccountID()) == "" ||
+		strings.TrimSpace(account.GetCredential("chatgpt_user_id")) == "" {
+		return errors.New("codex r2.2 0.155.1 requires complete chatgpt auth owner identity")
+	}
+	return nil
 }
 
 func codexR2AuthScope(c *gin.Context) string {
@@ -281,7 +295,8 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 		recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageInput, purpose, profile.ID, "observed")
 	}
 	authScope := codexR2AuthScope(c)
-	credentialScope := codexAccountIdentityNamespace(codexAccountIdentitySource(c, account))
+	identitySource := codexAccountIdentitySource(c, account)
+	credentialScope := codexAccountIdentityNamespace(identitySource)
 	if authScope == "" || credentialScope == "" {
 		if observer := s.getCodexR2Observer(); observer != nil {
 			recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageProposed, purpose, profile.ID, "scope_unknown")
@@ -399,6 +414,9 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 			UAPolicy:         policy.ClientUAMode,
 		}
 		if wireMode == config.CodexR2WireModeEnforce && wireContract != nil {
+			if err := validateCodexR22AuthOwner(profile, identitySource); err != nil {
+				return nil, err
+			}
 			wireStore, ok := s.codexR2State.(codexR2WireRuntimeStateStore)
 			if !ok {
 				return nil, ErrCodexR2WireIntegrity
@@ -443,6 +461,9 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 		contract, ok := codexwire.ContractForProfile(profile.ID)
 		if !ok {
 			return nil, ErrCodexR2WireIntegrity
+		}
+		if err := validateCodexR22AuthOwner(profile, identitySource); err != nil {
+			return nil, err
 		}
 		if err := validateCodexR2WireContractRequest(contract, purpose, headers, body, true); err != nil {
 			return nil, err

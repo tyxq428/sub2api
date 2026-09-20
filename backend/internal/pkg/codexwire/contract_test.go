@@ -10,7 +10,7 @@ func TestContractRegistryPinnedAndStable(t *testing.T) {
 	contract, ok := ContractForProfile("codex-0.155.1-profile-r1")
 	require.True(t, ok)
 	require.Equal(t, "be2951ea34f0d295ed0becf97079f92fa5f6950e", contract.ReferenceCommit)
-	require.False(t, contract.EvidenceComplete)
+	require.True(t, contract.EvidenceComplete)
 	require.True(t, contract.SupportsPurpose("websocket"))
 	require.Len(t, contract.Digest(), 64)
 	copy := contract

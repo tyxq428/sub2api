@@ -50,7 +50,7 @@ var contracts = []Contract{
 		ClientVersion:    "0.155.1",
 		GraphRevision:    GraphRevisionV1,
 		Purposes:         []string{"inference", "compact", "websocket"},
-		EvidenceComplete: false,
+		EvidenceComplete: true,
 	},
 }
 

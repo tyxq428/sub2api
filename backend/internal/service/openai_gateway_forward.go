@@ -156,7 +156,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		account,
 		c.Request.Header,
 		body,
-		codexR2Purpose(c, wsDecision.Transport == OpenAIUpstreamTransportResponsesWebsocketV2),
+		codexR2Purpose(c, wsDecision.Transport == OpenAIUpstreamTransportResponsesWebsocketV2, body),
 	)
 	if r2Err != nil {
 		return nil, r2Err

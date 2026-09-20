@@ -41,6 +41,19 @@ authorize or describe a production rollout.
   contract even if the mutable global wire_contract_mode is later set to off;
   the runtime toggle cannot silently downgrade an already-admitted R2.2
   session.
+- Fixed-source 0.155.1 evidence was subsequently refreshed from annotated tag
+  rust-v0.155.1 dereferencing exactly to
+  be2951ea34f0d295ed0becf97079f92fa5f6950e. The manifest now records
+  per-file Git blob ids and SHA-256 hashes.
+- Version-differential review confirmed that 0.155.1 removed the legacy unary
+  remote compact client and performs remote compaction v2 through the normal
+  Responses stream. R2.2 purpose classification therefore recognizes legacy
+  compact paths, native compaction-v2 request markers, and canonical
+  request_kind=compaction metadata.
+- 0.155.1 also scopes cached WebSocket state to the authenticated owner
+  (ChatGPT user + workspace/account + auth mode). Because R2.2 targets OAuth
+  only, enforce requires complete ChatGPT user and account identifiers before
+  admitting/using a 0.155.1 R2.2 binding.
 
 ## Repository-wide baseline findings
 
@@ -61,12 +74,6 @@ R2.2 protocol regression.
 
 - A repository-wide -race pass is not claimed. The active Windows Go
   environment reports that -race requires CGO.
-- Fresh per-file hash refresh for the pinned Codex 0.155.1 commit is not
-  claimed. Multiple GitHub/raw fixed-commit fetch attempts failed at the
-  transport/DNS layer. The exact commit remains pinned, and moving main was
-  not substituted as evidence. R2.2 enforce therefore rejects the 0.155.1
-  wire contract until that fixed-reference evidence is complete; shadow may
-  still compute it for differential observation.
 - A production receiver observation is not claimed. receiver_observed is an
   evidence-plane label reserved for an isolated receiver/fake upstream or a
   separately authorized production observation; local request construction is

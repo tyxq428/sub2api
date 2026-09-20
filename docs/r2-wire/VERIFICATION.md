@@ -32,6 +32,15 @@ authorize or describe a production rollout.
 - Authenticated R2.2 admission integration verified one client request produces
   exactly one fake-upstream request while policy binding plus wire contract are
   persisted transactionally.
+- Fresh review regression coverage verifies that enabling R2.2 enforce does
+  not reinterpret or reject an already-bound r2-v1 0.155.1 session merely
+  because R2.2's 0.155.1 reference evidence is incomplete. The evidence gate
+  applies when admitting/using R2.2 state, not retroactively to legacy R2
+  correctness state.
+- Existing r2.2-wire-v1 bindings continue to validate their persisted wire
+  contract even if the mutable global wire_contract_mode is later set to off;
+  the runtime toggle cannot silently downgrade an already-admitted R2.2
+  session.
 
 ## Repository-wide baseline findings
 

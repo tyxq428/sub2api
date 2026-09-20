@@ -55,7 +55,9 @@ R2.2 protocol regression.
 - Fresh per-file hash refresh for the pinned Codex 0.155.1 commit is not
   claimed. Multiple GitHub/raw fixed-commit fetch attempts failed at the
   transport/DNS layer. The exact commit remains pinned, and moving main was
-  not substituted as evidence.
+  not substituted as evidence. R2.2 enforce therefore rejects the 0.155.1
+  wire contract until that fixed-reference evidence is complete; shadow may
+  still compute it for differential observation.
 - A production receiver observation is not claimed. receiver_observed is an
   evidence-plane label reserved for an isolated receiver/fake upstream or a
   separately authorized production observation; local request construction is

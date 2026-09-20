@@ -21,33 +21,36 @@ const (
 // wire family.  It intentionally contains no credentials, account ids or
 // mutable runtime configuration.
 type Contract struct {
-	ID              string   `json:"id"`
-	ProfileID       string   `json:"profile_id"`
-	ReferenceTag    string   `json:"reference_tag"`
-	ReferenceCommit string   `json:"reference_commit"`
-	ClientVersion   string   `json:"client_version"`
-	GraphRevision   string   `json:"graph_revision"`
-	Purposes        []string `json:"purposes"`
+	ID               string   `json:"id"`
+	ProfileID        string   `json:"profile_id"`
+	ReferenceTag     string   `json:"reference_tag"`
+	ReferenceCommit  string   `json:"reference_commit"`
+	ClientVersion    string   `json:"client_version"`
+	GraphRevision    string   `json:"graph_revision"`
+	Purposes         []string `json:"purposes"`
+	EvidenceComplete bool     `json:"evidence_complete"`
 }
 
 var contracts = []Contract{
 	{
-		ID:              "codex-wire-0.154-r1",
-		ProfileID:       "codex-0.154-profile-r1",
-		ReferenceTag:    "rust-v0.154.0",
-		ReferenceCommit: "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
-		ClientVersion:   "0.154.0",
-		GraphRevision:   GraphRevisionV1,
-		Purposes:        []string{"inference", "compact", "websocket"},
+		ID:               "codex-wire-0.154-r1",
+		ProfileID:        "codex-0.154-profile-r1",
+		ReferenceTag:     "rust-v0.154.0",
+		ReferenceCommit:  "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+		ClientVersion:    "0.154.0",
+		GraphRevision:    GraphRevisionV1,
+		Purposes:         []string{"inference", "compact", "websocket"},
+		EvidenceComplete: true,
 	},
 	{
-		ID:              "codex-wire-0.155.1-r1",
-		ProfileID:       "codex-0.155.1-profile-r1",
-		ReferenceTag:    "rust-v0.155.1",
-		ReferenceCommit: "be2951ea34f0d295ed0becf97079f92fa5f6950e",
-		ClientVersion:   "0.155.1",
-		GraphRevision:   GraphRevisionV1,
-		Purposes:        []string{"inference", "compact", "websocket"},
+		ID:               "codex-wire-0.155.1-r1",
+		ProfileID:        "codex-0.155.1-profile-r1",
+		ReferenceTag:     "rust-v0.155.1",
+		ReferenceCommit:  "be2951ea34f0d295ed0becf97079f92fa5f6950e",
+		ClientVersion:    "0.155.1",
+		GraphRevision:    GraphRevisionV1,
+		Purposes:         []string{"inference", "compact", "websocket"},
+		EvidenceComplete: false,
 	},
 }
 

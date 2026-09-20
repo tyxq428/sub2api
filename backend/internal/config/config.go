@@ -951,6 +951,9 @@ const (
 
 	CodexR2ClientUAModeLegacyCanonical   = "legacy_canonical"
 	CodexR2ClientUAModePreserveValidated = "preserve_validated"
+	CodexR2WireModeOff                   = "off"
+	CodexR2WireModeShadow                = "shadow"
+	CodexR2WireModeEnforce               = "enforce"
 )
 
 // GatewayCodexR2Config is intentionally independent from the R1 rollout bit.
@@ -975,6 +978,10 @@ type GatewayCodexR2Config struct {
 	ObserverEventMaxBytes  int     `mapstructure:"observer_event_max_bytes"`
 	ObserverBatchSize      int     `mapstructure:"observer_batch_size"`
 	ObserverFlushSeconds   int     `mapstructure:"observer_flush_seconds"`
+	// WireContractMode is independently gated from the already-deployed R2
+	// identity policy. Its default is off so a binary update cannot reinterpret
+	// existing sessions without a later rollout decision.
+	WireContractMode string `mapstructure:"wire_contract_mode"`
 }
 
 func NormalizeCodexR2Mode(raw string) string {
@@ -994,6 +1001,17 @@ func NormalizeCodexR2ClientUAMode(raw string) string {
 		return CodexR2ClientUAModePreserveValidated
 	default:
 		return CodexR2ClientUAModeLegacyCanonical
+	}
+}
+
+func NormalizeCodexR2WireMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case CodexR2WireModeShadow:
+		return CodexR2WireModeShadow
+	case CodexR2WireModeEnforce:
+		return CodexR2WireModeEnforce
+	default:
+		return CodexR2WireModeOff
 	}
 }
 
@@ -1898,6 +1916,7 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	cfg.RunMode = NormalizeRunMode(cfg.RunMode)
 	cfg.Gateway.CodexR2.Mode = NormalizeCodexR2Mode(cfg.Gateway.CodexR2.Mode)
 	cfg.Gateway.CodexR2.ClientUAMode = NormalizeCodexR2ClientUAMode(cfg.Gateway.CodexR2.ClientUAMode)
+	cfg.Gateway.CodexR2.WireContractMode = NormalizeCodexR2WireMode(cfg.Gateway.CodexR2.WireContractMode)
 	cfg.Gateway.CodexR2.ReferenceProfile = strings.TrimSpace(cfg.Gateway.CodexR2.ReferenceProfile)
 	cfg.Gateway.CodexR2.TelemetryHMACKey = strings.TrimSpace(cfg.Gateway.CodexR2.TelemetryHMACKey)
 	cfg.Server.Mode = strings.ToLower(strings.TrimSpace(cfg.Server.Mode))
@@ -2459,6 +2478,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.codex_r2.observer_event_max_bytes", 16*1024)
 	viper.SetDefault("gateway.codex_r2.observer_batch_size", 128)
 	viper.SetDefault("gateway.codex_r2.observer_flush_seconds", 5)
+	viper.SetDefault("gateway.codex_r2.wire_contract_mode", CodexR2WireModeOff)
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
@@ -2729,11 +2749,24 @@ func setEnvReachableDefaults() {
 }
 
 func validateCodexR2Config(cfg GatewayCodexR2Config) error {
+	wireMode := NormalizeCodexR2WireMode(cfg.WireContractMode)
 	if cfg.Mode != CodexR2ModeOff && cfg.Mode != CodexR2ModeShadow && cfg.Mode != CodexR2ModeEnforce {
 		return fmt.Errorf("gateway.codex_r2.mode must be one of: off/shadow/enforce")
 	}
 	if cfg.ClientUAMode != CodexR2ClientUAModeLegacyCanonical && cfg.ClientUAMode != CodexR2ClientUAModePreserveValidated {
 		return fmt.Errorf("gateway.codex_r2.client_ua_mode must be one of: legacy_canonical/preserve_validated")
+	}
+	if strings.TrimSpace(cfg.WireContractMode) != "" &&
+		cfg.WireContractMode != CodexR2WireModeOff &&
+		cfg.WireContractMode != CodexR2WireModeShadow &&
+		cfg.WireContractMode != CodexR2WireModeEnforce {
+		return fmt.Errorf("gateway.codex_r2.wire_contract_mode must be one of: off/shadow/enforce")
+	}
+	if wireMode != CodexR2WireModeOff && cfg.Mode == CodexR2ModeOff {
+		return fmt.Errorf("gateway.codex_r2.wire_contract_mode requires R2 mode to be active")
+	}
+	if wireMode == CodexR2WireModeEnforce && cfg.Mode != CodexR2ModeEnforce {
+		return fmt.Errorf("gateway.codex_r2.wire_contract_mode=enforce requires gateway.codex_r2.mode=enforce")
 	}
 	if cfg.Mode != CodexR2ModeOff {
 		if len(cfg.EligibleAccountIDs) == 0 {

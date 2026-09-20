@@ -135,6 +135,8 @@ vite.config.js
 docs/*
 !docs/r2/
 !docs/r2/**
+!docs/r2-wire/
+!docs/r2-wire/**
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md

@@ -35,7 +35,20 @@ type ProtocolProfile struct {
 	ReferenceCommit            string
 	ClientVersion              string
 	ClientRequestFollowsThread bool
+	PromptCachePolicy          PromptCachePolicy
 }
+
+type PromptCachePolicy string
+
+const (
+	// PromptCacheIndependent keeps an explicit cache key in its own mapping
+	// domain even when its raw value happens to equal another identity.
+	PromptCacheIndependent PromptCachePolicy = "independent"
+	// PromptCacheFollowsSessionWhenEqual is evidence-scoped to pinned profiles:
+	// a default cache key equal to the canonical session follows the session
+	// mapping, while an explicit override remains independent.
+	PromptCacheFollowsSessionWhenEqual PromptCachePolicy = "session_when_equal"
+)
 
 func ProfileByID(id string) (ProtocolProfile, bool) {
 	switch strings.TrimSpace(id) {
@@ -46,6 +59,7 @@ func ProfileByID(id string) (ProtocolProfile, bool) {
 			ReferenceCommit:            "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
 			ClientVersion:              "0.154.0",
 			ClientRequestFollowsThread: true,
+			PromptCachePolicy:          PromptCacheFollowsSessionWhenEqual,
 		}, true
 	case Codex0155ProfileID:
 		return ProtocolProfile{
@@ -54,6 +68,7 @@ func ProfileByID(id string) (ProtocolProfile, bool) {
 			ReferenceCommit:            "be2951ea34f0d295ed0becf97079f92fa5f6950e",
 			ClientVersion:              "0.155.1",
 			ClientRequestFollowsThread: true,
+			PromptCachePolicy:          PromptCacheFollowsSessionWhenEqual,
 		}, true
 	default:
 		return ProtocolProfile{}, false

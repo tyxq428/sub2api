@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // openAICodexTurnStateHeader 是 Codex 的回合状态头。上游在响应头中铸造该
@@ -22,6 +23,7 @@ const openAICodexTurnStateHeader = "x-codex-turn-state"
 // 账号，出站守卫据此剥离已知异账号的回带值。
 type openAICodexTurnStateOrigin struct {
 	accountID int64
+	turnID    string
 	expiresAt time.Time
 }
 
@@ -38,6 +40,21 @@ func openAICodexTurnStateSeed(c *gin.Context) string {
 		return ""
 	}
 	return strconv.FormatInt(getAPIKeyIDFromContext(c), 10) + "\x00" + sessionID
+}
+
+// openAICodexTurnStateTurnID returns only an explicit client turn identity.
+// It never invents a turn from the HTTP request/attempt id. Canonical
+// x-codex-turn-metadata wins when present.
+func openAICodexTurnStateTurnID(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	if raw := strings.TrimSpace(c.Request.Header.Get("x-codex-turn-metadata")); raw != "" && gjson.Valid(raw) {
+		if turnID := strings.TrimSpace(gjson.Get(raw, "turn_id").String()); turnID != "" {
+			return turnID
+		}
+	}
+	return strings.TrimSpace(c.Request.Header.Get("turn-id"))
 }
 
 // relayOpenAICodexTurnState 将上游响应中的 turn-state 显式写入下游响应头，
@@ -110,6 +127,7 @@ func (s *OpenAIGatewayService) noteOpenAICodexTurnStateProvenance(c *gin.Context
 	}
 	s.openaiCodexTurnStateOrigins.Store(seed, openAICodexTurnStateOrigin{
 		accountID: account.ID,
+		turnID:    openAICodexTurnStateTurnID(c),
 		expiresAt: time.Now().Add(s.openAIWSSessionStickyTTL()),
 	})
 	s.sweepOpenAICodexTurnStateOrigins()
@@ -141,6 +159,11 @@ func (s *OpenAIGatewayService) guardOpenAICodexTurnStateEcho(c *gin.Context, acc
 	}
 	if !origin.expiresAt.IsZero() && time.Now().After(origin.expiresAt) {
 		s.openaiCodexTurnStateOrigins.Delete(seed)
+		return
+	}
+	currentTurnID := openAICodexTurnStateTurnID(c)
+	if origin.turnID != "" && currentTurnID != "" && origin.turnID != currentTurnID {
+		h.Del(openAICodexTurnStateHeader)
 		return
 	}
 	if origin.accountID != account.ID {

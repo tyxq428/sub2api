@@ -168,29 +168,50 @@ func ReadLenientJSONRequestBodyWithPrealloc(req *http.Request, maxNormalizedByte
 func decompressRequestBody(encoding string, raw []byte) ([]byte, error) {
 	switch encoding {
 	case "zstd":
-		dec, err := zstd.NewReader(bytes.NewReader(raw))
+		dec, err := zstd.NewReader(
+			bytes.NewReader(raw),
+			zstd.WithDecoderMaxMemory(uint64(maxDecompressedBodySize)),
+		)
 		if err != nil {
 			return nil, err
 		}
 		defer dec.Close()
-		return io.ReadAll(io.LimitReader(dec, maxDecompressedBodySize))
+		return readDecompressedBounded(dec, maxDecompressedBodySize)
 	case "gzip", "x-gzip":
 		gr, err := gzip.NewReader(bytes.NewReader(raw))
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = gr.Close() }()
-		return io.ReadAll(io.LimitReader(gr, maxDecompressedBodySize))
+		return readDecompressedBounded(gr, maxDecompressedBodySize)
 	case "deflate":
 		zr, err := zlib.NewReader(bytes.NewReader(raw))
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = zr.Close() }()
-		return io.ReadAll(io.LimitReader(zr, maxDecompressedBodySize))
+		return readDecompressedBounded(zr, maxDecompressedBodySize)
 	default:
 		return nil, errors.New("unsupported Content-Encoding")
 	}
+}
+
+// readDecompressedBounded reads one byte past the accepted limit so callers
+// can distinguish an exactly-at-limit payload from an over-limit stream.
+// Limiting to exactly N bytes would silently return a truncated prefix and
+// incorrectly treat it as a complete request.
+func readDecompressedBounded(reader io.Reader, limit int64) ([]byte, error) {
+	if limit < 0 {
+		return nil, errors.New("invalid decompressed body limit")
+	}
+	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, &http.MaxBytesError{Limit: limit}
+	}
+	return body, nil
 }
 
 // NormalizeLenientJSONRequestBody escapes raw control bytes that broken

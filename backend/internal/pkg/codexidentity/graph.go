@@ -57,7 +57,10 @@ func BuildGraph(snapshot RawSnapshot, profile ProtocolProfile) SemanticGraph {
 		if role.currentEntityRole() && graph.current[role] != "" {
 			semanticValue = graph.current[role]
 		}
-		if role == RolePromptCache && graph.current[RoleSession] != "" && semanticValue == graph.current[RoleSession] {
+		if role == RolePromptCache &&
+			profile.PromptCachePolicy == PromptCacheFollowsSessionWhenEqual &&
+			graph.current[RoleSession] != "" &&
+			semanticValue == graph.current[RoleSession] {
 			role = RoleSession
 		}
 		graph.Projections = append(graph.Projections, Projection{Field: field, Role: role, SemanticValue: semanticValue})

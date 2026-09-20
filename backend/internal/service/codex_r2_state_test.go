@@ -45,6 +45,23 @@ func codexR2BindingRows(in CodexR2Admission, policy string) *sqlmock.Rows {
 	)
 }
 
+func syntheticCodexR2WireAdmission() CodexR2WireContractAdmission {
+	return CodexR2WireContractAdmission{
+		ContractID:      "codex-wire-0.154-r1",
+		ContractSHA256:  strings.Repeat("d", 64),
+		ReferenceCommit: strings.Repeat("e", 40),
+		GraphRevision:   "r2.2-graph-v1",
+	}
+}
+
+func codexR2WireBindingRows(bindingID int64, in CodexR2WireContractAdmission) *sqlmock.Rows {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	return sqlmock.NewRows([]string{
+		"binding_id", "contract_id", "contract_sha256", "reference_commit", "graph_revision",
+		"created_at", "updated_at",
+	}).AddRow(bindingID, in.ContractID, in.ContractSHA256, in.ReferenceCommit, in.GraphRevision, now, now)
+}
+
 func TestCodexR2AdmitCreatesBindingWithoutExposingDigests(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -87,6 +104,66 @@ func TestCodexR2AdmitExistingPolicyMismatchFailsClosed(t *testing.T) {
 	_, created, err := svc.Admit(context.Background(), in)
 	require.False(t, created)
 	require.ErrorIs(t, err, ErrCodexR2BindingConflict)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCodexR2AdmitWithWireContractIsAtomic(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+	in := syntheticCodexR2Admission()
+	in.PolicyRevision = "r2.2-wire-v1"
+	wire := syntheticCodexR2WireAdmission()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO codex_r2_policy_bindings").
+		WithArgs(
+			in.AccountID, in.AuthScopeDigest, in.SessionDigest, in.ProfileRevision,
+			in.PolicyRevision, in.MappingAlgorithm, in.MappingKeyEpoch, in.NamespaceDigest, in.UAPolicy,
+		).
+		WillReturnRows(codexR2BindingRows(in, in.PolicyRevision))
+	mock.ExpectQuery("INSERT INTO codex_r2_wire_contract_bindings").
+		WithArgs(int64(41), wire.ContractID, wire.ContractSHA256, wire.ReferenceCommit, wire.GraphRevision).
+		WillReturnRows(codexR2WireBindingRows(41, wire))
+	mock.ExpectCommit()
+
+	svc := NewCodexR2StateService(db, &config.Config{})
+	binding, wireBinding, created, err := svc.AdmitWithWireContract(context.Background(), in, wire)
+	require.NoError(t, err)
+	require.True(t, created)
+	require.Equal(t, int64(41), binding.ID)
+	require.Equal(t, binding.ID, wireBinding.BindingID)
+	require.Equal(t, wire.ContractSHA256, wireBinding.ContractSHA256)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCodexR2AdmitWithWireContractMissingSidecarFailsIntegrity(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+	in := syntheticCodexR2Admission()
+	in.PolicyRevision = "r2.2-wire-v1"
+	wire := syntheticCodexR2WireAdmission()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO codex_r2_policy_bindings").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "auth_scope_digest", "session_digest", "profile_revision",
+			"policy_revision", "mapping_algorithm", "mapping_key_epoch", "namespace_digest",
+			"ua_policy", "status", "version", "created_at", "updated_at",
+		}))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT "+codexR2BindingColumns)).
+		WithArgs(in.AccountID, in.AuthScopeDigest, in.SessionDigest).
+		WillReturnRows(codexR2BindingRows(in, in.PolicyRevision))
+	mock.ExpectQuery("SELECT binding_id, contract_id, contract_sha256").
+		WithArgs(int64(41)).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+
+	svc := NewCodexR2StateService(db, &config.Config{})
+	_, _, created, err := svc.AdmitWithWireContract(context.Background(), in, wire)
+	require.False(t, created)
+	require.ErrorIs(t, err, ErrCodexR2WireIntegrity)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

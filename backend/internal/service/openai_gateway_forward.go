@@ -1540,9 +1540,12 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
-	s.recordCodexR2Actual(account, stagedCodexR2Attempt(c), req.Header, body, "prepared")
+	s.recordCodexR2Actual(account, stagedCodexR2Attempt(c), req.Header, body, codexR2SemanticReadyResult(c))
 	if err := applyOpenAIResponsesRequestCompression(c, account, req, body); err != nil {
 		return nil, fmt.Errorf("compress openai responses request: %w", err)
+	}
+	if err := s.finalizeCodexR2TransportEnvelope(c, account, req, body); err != nil {
+		return nil, fmt.Errorf("validate codex r2.2 final wire envelope: %w", err)
 	}
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http", req.Header, body, "not_applicable")
 

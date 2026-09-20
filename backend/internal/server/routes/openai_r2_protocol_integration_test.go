@@ -273,6 +273,7 @@ func TestR2AuthenticatedHTTPPreservesClientProfileAndSemanticIdentity(t *testing
 	)
 	clientKey := b9ProtocolSecret(t)
 	cfg := r2ProtocolConfig(accountID, mappingKey)
+	cfg.Gateway.CodexR2.WireContractMode = config.CodexR2WireModeShadow
 	account := service.Account{
 		ID: accountID, Name: "r2-protocol-http", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
 		Status: service.StatusActive, Schedulable: true, Concurrency: 1, Priority: 1,

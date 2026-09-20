@@ -17,6 +17,7 @@ var (
 	ErrCodexR2BindingConflict = errors.New("codex r2 policy binding conflict")
 	ErrCodexR2BindingLost     = errors.New("codex r2 policy binding compare-and-swap lost")
 	ErrCodexR2LineageConflict = errors.New("codex r2 lineage anchor conflict")
+	ErrCodexR2WireIntegrity   = errors.New("codex r2 wire contract integrity failure")
 )
 
 var codexR2DigestPattern = regexp.MustCompile(`^[0-9a-f]{32,64}$`)
@@ -56,6 +57,23 @@ type CodexR2Admission struct {
 	MappingKeyEpoch  string
 	NamespaceDigest  string
 	UAPolicy         string
+}
+
+type CodexR2WireContractBinding struct {
+	BindingID       int64     `json:"binding_id"`
+	ContractID      string    `json:"contract_id"`
+	ContractSHA256  string    `json:"contract_sha256"`
+	ReferenceCommit string    `json:"reference_commit"`
+	GraphRevision   string    `json:"graph_revision"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+type CodexR2WireContractAdmission struct {
+	ContractID      string
+	ContractSHA256  string
+	ReferenceCommit string
+	GraphRevision   string
 }
 
 type CodexR2LineageAnchor struct {
@@ -178,6 +196,24 @@ func validateCodexR2Admission(in CodexR2Admission) error {
 	return nil
 }
 
+var (
+	codexR2WireSHA256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	codexR2WireCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+)
+
+func validateCodexR2WireAdmission(in CodexR2WireContractAdmission) error {
+	if strings.TrimSpace(in.ContractID) == "" || strings.TrimSpace(in.GraphRevision) == "" {
+		return errors.New("codex r2 wire contract id and graph revision are required")
+	}
+	if !codexR2WireSHA256Pattern.MatchString(strings.TrimSpace(in.ContractSHA256)) {
+		return errors.New("codex r2 wire contract sha256 must be lowercase hex")
+	}
+	if !codexR2WireCommitPattern.MatchString(strings.TrimSpace(in.ReferenceCommit)) {
+		return errors.New("codex r2 wire reference commit must be lowercase hex")
+	}
+	return nil
+}
+
 const codexR2BindingColumns = `id, account_id, auth_scope_digest, session_digest,
 profile_revision, policy_revision, mapping_algorithm, mapping_key_epoch,
 namespace_digest, ua_policy, status, version, created_at, updated_at`
@@ -197,6 +233,35 @@ func scanCodexR2Binding(row codexR2RowScanner) (*CodexR2PolicyBinding, error) {
 		return nil, err
 	}
 	return &binding, nil
+}
+
+func scanCodexR2WireBinding(row codexR2RowScanner) (*CodexR2WireContractBinding, error) {
+	var binding CodexR2WireContractBinding
+	if err := row.Scan(
+		&binding.BindingID, &binding.ContractID, &binding.ContractSHA256,
+		&binding.ReferenceCommit, &binding.GraphRevision, &binding.CreatedAt, &binding.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	return &binding, nil
+}
+
+func sameCodexR2Admission(binding *CodexR2PolicyBinding, in CodexR2Admission) bool {
+	return binding != nil &&
+		binding.ProfileRevision == in.ProfileRevision &&
+		binding.PolicyRevision == in.PolicyRevision &&
+		binding.MappingAlgorithm == in.MappingAlgorithm &&
+		binding.MappingKeyEpoch == in.MappingKeyEpoch &&
+		binding.NamespaceDigest == in.NamespaceDigest &&
+		binding.UAPolicy == in.UAPolicy
+}
+
+func sameCodexR2WireAdmission(binding *CodexR2WireContractBinding, in CodexR2WireContractAdmission) bool {
+	return binding != nil &&
+		binding.ContractID == in.ContractID &&
+		binding.ContractSHA256 == in.ContractSHA256 &&
+		binding.ReferenceCommit == in.ReferenceCommit &&
+		binding.GraphRevision == in.GraphRevision
 }
 
 func (s *CodexR2StateService) Admit(ctx context.Context, in CodexR2Admission) (*CodexR2PolicyBinding, bool, error) {
@@ -236,6 +301,102 @@ RETURNING `+codexR2BindingColumns,
 		return nil, false, ErrCodexR2BindingConflict
 	}
 	return existing, false, nil
+}
+
+// AdmitWithWireContract atomically creates a new R2 policy binding and its
+// R2.2 wire-contract record. Existing legacy R2 bindings are never upgraded by
+// this method: a conflicting pre-existing policy row is returned as a binding
+// conflict so runtime code can keep that session on the old contract.
+func (s *CodexR2StateService) AdmitWithWireContract(
+	ctx context.Context,
+	in CodexR2Admission,
+	wire CodexR2WireContractAdmission,
+) (*CodexR2PolicyBinding, *CodexR2WireContractBinding, bool, error) {
+	if s == nil || s.db == nil {
+		return nil, nil, false, errors.New("codex r2 state database unavailable")
+	}
+	if err := validateCodexR2Admission(in); err != nil {
+		return nil, nil, false, err
+	}
+	if err := validateCodexR2WireAdmission(wire); err != nil {
+		return nil, nil, false, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	row := tx.QueryRowContext(ctx, `
+INSERT INTO codex_r2_policy_bindings (
+    account_id, auth_scope_digest, session_digest, profile_revision, policy_revision,
+    mapping_algorithm, mapping_key_epoch, namespace_digest, ua_policy
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+ON CONFLICT (account_id, auth_scope_digest, session_digest) DO NOTHING
+RETURNING `+codexR2BindingColumns,
+		in.AccountID, in.AuthScopeDigest, in.SessionDigest, in.ProfileRevision, in.PolicyRevision,
+		in.MappingAlgorithm, in.MappingKeyEpoch, in.NamespaceDigest, in.UAPolicy,
+	)
+	binding, err := scanCodexR2Binding(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		existing, getErr := scanCodexR2Binding(tx.QueryRowContext(ctx, `
+SELECT `+codexR2BindingColumns+`
+FROM codex_r2_policy_bindings
+WHERE account_id=$1 AND auth_scope_digest=$2 AND session_digest=$3`,
+			in.AccountID, in.AuthScopeDigest, in.SessionDigest))
+		if getErr != nil {
+			return nil, nil, false, getErr
+		}
+		if !sameCodexR2Admission(existing, in) {
+			return nil, nil, false, ErrCodexR2BindingConflict
+		}
+		wireBinding, wireErr := scanCodexR2WireBinding(tx.QueryRowContext(ctx, `
+SELECT binding_id, contract_id, contract_sha256, reference_commit, graph_revision, created_at, updated_at
+FROM codex_r2_wire_contract_bindings WHERE binding_id=$1`, existing.ID))
+		if wireErr != nil {
+			if errors.Is(wireErr, sql.ErrNoRows) {
+				return nil, nil, false, ErrCodexR2WireIntegrity
+			}
+			return nil, nil, false, wireErr
+		}
+		if !sameCodexR2WireAdmission(wireBinding, wire) {
+			return nil, nil, false, ErrCodexR2WireIntegrity
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, nil, false, err
+		}
+		return existing, wireBinding, false, nil
+	}
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	wireBinding, err := scanCodexR2WireBinding(tx.QueryRowContext(ctx, `
+INSERT INTO codex_r2_wire_contract_bindings (
+    binding_id, contract_id, contract_sha256, reference_commit, graph_revision
+) VALUES ($1,$2,$3,$4,$5)
+RETURNING binding_id, contract_id, contract_sha256, reference_commit, graph_revision, created_at, updated_at`,
+		binding.ID, wire.ContractID, wire.ContractSHA256, wire.ReferenceCommit, wire.GraphRevision))
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, false, err
+	}
+	return binding, wireBinding, true, nil
+}
+
+func (s *CodexR2StateService) GetWireContractBinding(ctx context.Context, bindingID int64) (*CodexR2WireContractBinding, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("codex r2 state database unavailable")
+	}
+	if bindingID <= 0 {
+		return nil, errors.New("binding id is required")
+	}
+	return scanCodexR2WireBinding(s.db.QueryRowContext(ctx, `
+SELECT binding_id, contract_id, contract_sha256, reference_commit, graph_revision, created_at, updated_at
+FROM codex_r2_wire_contract_bindings
+WHERE binding_id=$1`, bindingID))
 }
 
 func (s *CodexR2StateService) GetBinding(ctx context.Context, accountID int64, authScopeDigest, sessionDigest string) (*CodexR2PolicyBinding, error) {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useAppStore } from '@/stores/app'
 import { getPublicSettings } from '@/api/auth'
+import { checkUpdates } from '@/api/admin/system'
 import type { PublicSettings } from '@/types'
 
 function createDeferred<T>() {
@@ -81,6 +82,7 @@ describe('useAppStore', () => {
     vi.useFakeTimers()
     localStorage.clear()
     vi.mocked(getPublicSettings).mockReset()
+    vi.mocked(checkUpdates).mockReset()
     // 清除 window.__APP_CONFIG__
     delete (window as any).__APP_CONFIG__
   })
@@ -321,6 +323,36 @@ describe('useAppStore', () => {
       expect(store.sidebarCollapsed).toBe(false)
       expect(store.loading).toBe(false)
       expect(store.toasts).toHaveLength(0)
+    })
+  })
+
+  describe('版本构建身份', () => {
+    it('将 build identity 与 semantic version 分开缓存', async () => {
+      vi.mocked(checkUpdates).mockResolvedValue({
+        current_version: '0.2.4',
+        latest_version: '0.2.5',
+        has_update: true,
+        cached: false,
+        build_type: 'release',
+        build_commit: '6afffd9a27864fd6b81a05efe832f97d2e8e2362',
+        build_label: 'R2'
+      })
+      const store = useAppStore()
+
+      const info = await store.fetchVersion(true)
+
+      expect(info?.current_version).toBe('0.2.4')
+      expect(store.currentVersion).toBe('0.2.4')
+      expect(store.latestVersion).toBe('0.2.5')
+      expect(store.hasUpdate).toBe(true)
+      expect(store.buildCommit).toBe('6afffd9a27864fd6b81a05efe832f97d2e8e2362')
+      expect(store.buildLabel).toBe('R2')
+
+      const cached = await store.fetchVersion(false)
+      expect(cached?.current_version).toBe('0.2.4')
+      expect(cached?.build_commit).toBe('6afffd9a27864fd6b81a05efe832f97d2e8e2362')
+      expect(cached?.build_label).toBe('R2')
+      expect(checkUpdates).toHaveBeenCalledTimes(1)
     })
   })
 

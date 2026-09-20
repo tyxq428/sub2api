@@ -69,6 +69,26 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
 }
 
+func TestUpdateServiceBuildIdentityIsAdditiveToVersionComparison(t *testing.T) {
+	svc := NewUpdateService(
+		&updateServiceCacheStub{},
+		&updateServiceGitHubClientStub{
+			release: &GitHubRelease{TagName: "v0.2.5", Name: "v0.2.5"},
+		},
+		"0.2.4",
+		"release",
+	).WithBuildIdentity("6afffd9a27864fd6b81a05efe832f97d2e8e2362", "R2")
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, "0.2.4", info.CurrentVersion)
+	require.Equal(t, "0.2.5", info.LatestVersion)
+	require.True(t, info.HasUpdate)
+	require.Equal(t, "6afffd9a27864fd6b81a05efe832f97d2e8e2362", info.BuildCommit)
+	require.Equal(t, "R2", info.BuildLabel)
+}
+
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {
 	return NewUpdateService(
 		&updateServiceCacheStub{},

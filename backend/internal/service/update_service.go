@@ -65,6 +65,8 @@ type UpdateService struct {
 	githubClient   GitHubReleaseClient
 	currentVersion string
 	buildType      string // "source" for manual builds, "release" for CI builds
+	buildCommit    string
+	buildLabel     string
 }
 
 // NewUpdateService creates a new UpdateService
@@ -77,6 +79,22 @@ func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, versi
 	}
 }
 
+// WithBuildIdentity attaches operator-facing build metadata without changing
+// semantic version/update/rollback behavior.
+func (s *UpdateService) WithBuildIdentity(commit, label string) *UpdateService {
+	commit = strings.TrimSpace(commit)
+	if commit == "unknown" || commit == "docker" || len(commit) > 64 {
+		commit = ""
+	}
+	label = strings.TrimSpace(label)
+	if len(label) > 32 {
+		label = label[:32]
+	}
+	s.buildCommit = commit
+	s.buildLabel = label
+	return s
+}
+
 // UpdateInfo contains update information
 type UpdateInfo struct {
 	CurrentVersion string       `json:"current_version"`
@@ -86,6 +104,8 @@ type UpdateInfo struct {
 	Cached         bool         `json:"cached"`
 	Warning        string       `json:"warning,omitempty"`
 	BuildType      string       `json:"build_type"` // "source" or "release"
+	BuildCommit    string       `json:"build_commit,omitempty"`
+	BuildLabel     string       `json:"build_label,omitempty"`
 }
 
 // ReleaseInfo contains GitHub release details
@@ -152,6 +172,8 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 			HasUpdate:      false,
 			Warning:        err.Error(),
 			BuildType:      s.buildType,
+			BuildCommit:    s.buildCommit,
+			BuildLabel:     s.buildLabel,
 		}, nil
 	}
 
@@ -427,8 +449,10 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, er
 			HTMLURL:     release.HTMLURL,
 			Assets:      assets,
 		},
-		Cached:    false,
-		BuildType: s.buildType,
+		Cached:      false,
+		BuildType:   s.buildType,
+		BuildCommit: s.buildCommit,
+		BuildLabel:  s.buildLabel,
 	}, nil
 }
 
@@ -619,6 +643,8 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 		ReleaseInfo:    cached.ReleaseInfo,
 		Cached:         true,
 		BuildType:      s.buildType,
+		BuildCommit:    s.buildCommit,
+		BuildLabel:     s.buildLabel,
 	}, nil
 }
 

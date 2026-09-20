@@ -12,7 +12,9 @@
         ]"
         :title="hasUpdate ? t('version.updateAvailable') : t('version.upToDate')"
       >
-        <span v-if="currentVersion" class="font-medium">v{{ currentVersion }}</span>
+        <span v-if="currentVersion" class="font-medium">
+          v{{ currentVersion }}<span v-if="buildIdentity"> · {{ buildIdentity }}</span>
+        </span>
         <span
           v-else
           class="h-3 w-12 animate-pulse rounded bg-gray-200 font-medium dark:bg-dark-600"
@@ -105,6 +107,12 @@
                     </svg>
                   </span>
                 </div>
+                <p
+                  v-if="buildIdentity"
+                  class="mt-1 text-xs font-medium text-gray-600 dark:text-dark-300"
+                >
+                  {{ buildIdentity }}
+                </p>
                 <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">
                   {{
                     hasUpdate
@@ -676,6 +684,13 @@ const latestVersion = computed(() => appStore.latestVersion)
 const hasUpdate = computed(() => appStore.hasUpdate)
 const releaseInfo = computed(() => appStore.releaseInfo)
 const buildType = computed(() => appStore.buildType)
+const buildIdentity = computed(() => {
+  const label = appStore.buildLabel.trim()
+  const commit = appStore.buildCommit.trim()
+  if (!label) return ''
+  if (!commit) return label
+  return `${label} ${commit.slice(0, 8)}`
+})
 
 // Update process states (local to this component)
 const updating = ref(false)

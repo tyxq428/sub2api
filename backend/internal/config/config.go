@@ -2456,7 +2456,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.codex_r2.max_identity_value_bytes", 1024)
 	viper.SetDefault("gateway.codex_r2.max_user_agent_bytes", 1024)
 	viper.SetDefault("gateway.codex_r2.observer_queue_capacity", 4096)
-	viper.SetDefault("gateway.codex_r2.observer_event_max_bytes", 4096)
+	viper.SetDefault("gateway.codex_r2.observer_event_max_bytes", 16*1024)
 	viper.SetDefault("gateway.codex_r2.observer_batch_size", 128)
 	viper.SetDefault("gateway.codex_r2.observer_flush_seconds", 5)
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)

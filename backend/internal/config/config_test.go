@@ -2553,7 +2553,7 @@ func TestLoadDefaultCodexR2ConfigIsOff(t *testing.T) {
 	require.Equal(t, "epoch-1", cfg.Gateway.CodexR2.MappingKeyEpoch)
 	require.Empty(t, cfg.Gateway.CodexR2.MappingHMACKey)
 	require.Equal(t, 4096, cfg.Gateway.CodexR2.ObserverQueueCapacity)
-	require.Equal(t, 4096, cfg.Gateway.CodexR2.ObserverEventMaxBytes)
+	require.Equal(t, 16*1024, cfg.Gateway.CodexR2.ObserverEventMaxBytes)
 }
 
 func TestLoadInvalidCodexR2ModeFailsClosedToOff(t *testing.T) {

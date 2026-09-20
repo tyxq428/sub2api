@@ -140,11 +140,56 @@ func TestObserverCountsOversizeEvents(t *testing.T) {
 	require.Equal(t, uint64(1), observer.Stats().DroppedOversize)
 }
 
+func TestObserverProductionBoundAcceptsMaximalSupportedIdentitySnapshot(t *testing.T) {
+	sink := &memorySink{}
+	observer, err := NewObserver(ObserverOptions{
+		Mode: ModeShadow, Secret: []byte("01234567890123456789012345678901"),
+		QueueCapacity: 8, MaxEventBytes: 16 * 1024, BatchSize: 1, FlushInterval: time.Hour, Sink: sink,
+	})
+	require.NoError(t, err)
+
+	turnMetadata := `{"installation_id":"i","session_id":"s","thread_id":"t","turn_id":"u","window_id":"w","context_window_id":"cw","forked_from_thread_id":"ft","parent_thread_id":"pt","parent_turn_id":"pu","root_turn_id":"ru","request_kind":"rk","subagent_kind":"sk","thread_source":"ts","turn_trigger":"tt"}`
+	headers := http.Header{
+		"Conversation-Id":          {"conv"},
+		"Conversation_Id":          {"conv2"},
+		"Originator":               {"codex_cli_rs"},
+		"Session-Id":               {"sess-h"},
+		"Session_Id":               {"sess-u"},
+		"Thread-Id":                {"thread"},
+		"Turn-Id":                  {"turn"},
+		"User-Agent":               {"codex_cli_rs/0.154.0"},
+		"Version":                  {"0.154.0"},
+		"X-Client-Request-Id":      {"xreq"},
+		"X-Codex-Beta-Features":    {"f1,f2"},
+		"X-Codex-Installation-Id":  {"install"},
+		"X-Codex-Parent-Thread-Id": {"parent"},
+		"X-Codex-Turn-Metadata":    {turnMetadata},
+		"X-Codex-Window-Id":        {"window"},
+		"X-Openai-Subagent":        {"sub"},
+	}
+	encodedTurnMetadata, err := json.Marshal(turnMetadata)
+	require.NoError(t, err)
+	body := []byte(`{"prompt_cache_key":"pc","client_metadata":{"installation_id":"i","x-codex-installation-id":"i2","session_id":"s","session-id":"s2","thread_id":"t","thread-id":"t2","turn_id":"u","turn-id":"u2","window_id":"w","x-codex-window-id":"w2","x-client-request-id":"xr","x-codex-parent-thread-id":"pt","x-openai-subagent":"sub","x-codex-turn-metadata":` + string(encodedTurnMetadata) + `}}`)
+	snapshot := Capture(headers, body, DefaultLimits())
+	event := observer.buildEvent(snapshot, StageInput, PurposeInference, Codex0154ProfileID, "observed")
+	encodedEvent, err := json.Marshal(event)
+	require.NoError(t, err)
+	require.Greater(t, len(encodedEvent), 4096, "regression fixture must exceed the old 4 KiB ceiling")
+	require.Less(t, len(encodedEvent), 16*1024)
+	require.Equal(t, RecordEnqueued, observer.Record(snapshot, StageInput, PurposeInference, Codex0154ProfileID, "observed"))
+	observer.Close()
+	require.Equal(t, uint64(1), observer.Stats().Written)
+	require.Zero(t, observer.Stats().DroppedOversize)
+	require.Len(t, sink.events(), 1)
+}
+
 func TestObserverCountsSinkErrors(t *testing.T) {
 	sink := &memorySink{err: errors.New("synthetic sink failure")}
+	reported := make(chan error, 1)
 	observer, err := NewObserver(ObserverOptions{
 		Mode: ModeShadow, Secret: []byte("01234567890123456789012345678901"),
 		QueueCapacity: 2, MaxEventBytes: 4096, BatchSize: 1, FlushInterval: time.Hour, Sink: sink,
+		OnWriteError: func(err error) { reported <- err },
 	})
 	require.NoError(t, err)
 	snapshot := Capture(http.Header{"Thread-Id": {"thread"}}, nil, DefaultLimits())
@@ -152,6 +197,12 @@ func TestObserverCountsSinkErrors(t *testing.T) {
 	observer.Close()
 	require.Equal(t, uint64(1), observer.Stats().WriteErrors)
 	require.Zero(t, observer.Stats().Written)
+	select {
+	case err := <-reported:
+		require.EqualError(t, err, "synthetic sink failure")
+	default:
+		t.Fatal("expected observer sink error callback")
+	}
 }
 
 func TestObserverRecordAfterCloseIsRejected(t *testing.T) {

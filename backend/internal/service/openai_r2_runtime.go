@@ -14,7 +14,9 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/codexidentity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 const (
@@ -86,12 +88,48 @@ func (s *OpenAIGatewayService) getCodexR2Observer() *codexidentity.Observer {
 			BatchSize:     r2.ObserverBatchSize,
 			FlushInterval: time.Duration(r2.ObserverFlushSeconds) * time.Second,
 			Sink:          s.codexR2State,
+			OnWriteError: func(err error) {
+				logger.L().Warn("codex_r2_observer_write_failed", zap.Error(err))
+			},
 		})
+		if s.codexR2ObserverErr != nil {
+			logger.L().Error("codex_r2_observer_init_failed",
+				zap.Int("queue_capacity", r2.ObserverQueueCapacity),
+				zap.Int("event_max_bytes", r2.ObserverEventMaxBytes),
+				zap.Int("batch_size", r2.ObserverBatchSize),
+				zap.Error(s.codexR2ObserverErr),
+			)
+		}
 	})
 	if s.codexR2ObserverErr != nil {
 		return nil
 	}
 	return s.codexR2Observer
+}
+
+func recordCodexR2Observation(
+	observer *codexidentity.Observer,
+	accountID int64,
+	snapshot codexidentity.RawSnapshot,
+	stage codexidentity.Stage,
+	purpose codexidentity.Purpose,
+	profile string,
+	result string,
+) {
+	if observer == nil {
+		return
+	}
+	recordResult := observer.RecordForAccount(accountID, snapshot, stage, purpose, profile, result)
+	if recordResult == codexidentity.RecordEnqueued {
+		return
+	}
+	logger.L().Warn("codex_r2_observer_record_not_enqueued",
+		zap.Int64("account_id", accountID),
+		zap.String("stage", string(stage)),
+		zap.String("purpose", string(purpose)),
+		zap.String("result", result),
+		zap.String("record_result", string(recordResult)),
+	)
 }
 
 func stageCodexR2Attempt(c *gin.Context, attempt *codexR2Attempt) {
@@ -136,7 +174,7 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 	if !ok {
 		snapshot := codexidentity.Capture(headers, body, codexR2SnapshotLimits(s.cfg))
 		if observer := s.getCodexR2Observer(); observer != nil {
-			observer.RecordForAccount(account.ID, snapshot, codexidentity.StageInput, purpose, policy.ReferenceProfile, "unknown_profile")
+			recordCodexR2Observation(observer, account.ID, snapshot, codexidentity.StageInput, purpose, policy.ReferenceProfile, "unknown_profile")
 		}
 		if policy.Mode == codexidentity.ModeEnforce {
 			return nil, fmt.Errorf("unsupported codex r2 profile %q", policy.ReferenceProfile)
@@ -146,13 +184,13 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 
 	raw := codexidentity.Capture(headers, body, codexR2SnapshotLimits(s.cfg))
 	if observer := s.getCodexR2Observer(); observer != nil {
-		observer.RecordForAccount(account.ID, raw, codexidentity.StageInput, purpose, profile.ID, "observed")
+		recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageInput, purpose, profile.ID, "observed")
 	}
 	authScope := codexR2AuthScope(c)
 	credentialScope := codexAccountIdentityNamespace(codexAccountIdentitySource(c, account))
 	if authScope == "" || credentialScope == "" {
 		if observer := s.getCodexR2Observer(); observer != nil {
-			observer.RecordForAccount(account.ID, raw, codexidentity.StageProposed, purpose, profile.ID, "scope_unknown")
+			recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageProposed, purpose, profile.ID, "scope_unknown")
 		}
 		if policy.Mode == codexidentity.ModeEnforce {
 			return nil, ErrCodexR2BindingInvalid
@@ -182,7 +220,7 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 	}
 	if err != nil {
 		if observer := s.getCodexR2Observer(); observer != nil {
-			observer.RecordForAccount(account.ID, raw, codexidentity.StageProposed, purpose, profile.ID, "plan_conflict")
+			recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageProposed, purpose, profile.ID, "plan_conflict")
 		}
 		if policy.Mode == codexidentity.ModeEnforce {
 			return nil, err
@@ -210,7 +248,7 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 			projectedHeaders, projectedBody, projectErr := codexidentity.ProjectHTTP(headers, body, plan)
 			if projectErr == nil {
 				proposed := codexidentity.Capture(projectedHeaders, projectedBody, codexR2SnapshotLimits(s.cfg))
-				observer.RecordForAccount(account.ID, proposed, codexidentity.StageProposed, purpose, profile.ID, "planned")
+				recordCodexR2Observation(observer, account.ID, proposed, codexidentity.StageProposed, purpose, profile.ID, "planned")
 			}
 		}
 		stageCodexR2Attempt(c, attempt)
@@ -269,7 +307,7 @@ func (s *OpenAIGatewayService) recordCodexR2Actual(account *Account, attempt *co
 	}
 	if observer := s.getCodexR2Observer(); observer != nil {
 		actual := codexidentity.Capture(headers, body, codexR2SnapshotLimits(s.cfg))
-		observer.RecordForAccount(account.ID, actual, codexidentity.StageActual, attempt.Purpose, attempt.Policy.ReferenceProfile, result)
+		recordCodexR2Observation(observer, account.ID, actual, codexidentity.StageActual, attempt.Purpose, attempt.Policy.ReferenceProfile, result)
 	}
 }
 

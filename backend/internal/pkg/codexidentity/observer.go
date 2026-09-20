@@ -46,6 +46,7 @@ type ObserverOptions struct {
 	BatchSize     int
 	FlushInterval time.Duration
 	Sink          BatchSink
+	OnWriteError  func(error)
 	Now           func() time.Time
 }
 
@@ -78,6 +79,7 @@ type Observer struct {
 	batchSize       int
 	flushInterval   time.Duration
 	sink            BatchSink
+	onWriteError    func(error)
 	now             func() time.Time
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
@@ -110,7 +112,7 @@ func NewObserver(options ObserverOptions) (*Observer, error) {
 		options.QueueCapacity = 4096
 	}
 	if options.MaxEventBytes <= 0 {
-		options.MaxEventBytes = 4096
+		options.MaxEventBytes = 16 * 1024
 	}
 	if options.BatchSize <= 0 {
 		options.BatchSize = 128
@@ -128,6 +130,7 @@ func NewObserver(options ObserverOptions) (*Observer, error) {
 	o.batchSize = options.BatchSize
 	o.flushInterval = options.FlushInterval
 	o.sink = options.Sink
+	o.onWriteError = options.OnWriteError
 	o.now = options.Now
 	o.cancel = cancel
 	o.wg.Add(1)
@@ -254,6 +257,9 @@ func (o *Observer) run(ctx context.Context) {
 		batch = batch[:0]
 		if err := o.sink.WriteBatch(context.Background(), out); err != nil {
 			o.writeErrors.Add(1)
+			if o.onWriteError != nil {
+				o.onWriteError(err)
+			}
 			return
 		}
 		o.written.Add(uint64(len(out)))

@@ -104,21 +104,36 @@ func codexR2WireContractForRequest(
 	if !ok {
 		return mode, nil, fmt.Errorf("no codex r2.2 wire contract for profile %q", profile.ID)
 	}
-	if mode == config.CodexR2WireModeEnforce && !contract.EvidenceComplete {
-		return mode, nil, fmt.Errorf("codex r2.2 wire contract %q lacks complete pinned reference evidence", contract.ID)
+	if err := validateCodexR2WireContractRequest(
+		contract, purpose, headers, body, mode == config.CodexR2WireModeEnforce,
+	); err != nil {
+		return mode, nil, err
+	}
+	return mode, &contract, nil
+}
+
+func validateCodexR2WireContractRequest(
+	contract codexwire.Contract,
+	purpose codexidentity.Purpose,
+	headers http.Header,
+	body []byte,
+	requireCompleteEvidence bool,
+) error {
+	if requireCompleteEvidence && !contract.EvidenceComplete {
+		return fmt.Errorf("codex r2.2 wire contract %q lacks complete pinned reference evidence", contract.ID)
 	}
 	if !contract.SupportsPurpose(string(purpose)) {
-		return mode, nil, fmt.Errorf("codex r2.2 wire contract %q does not support purpose %q", contract.ID, purpose)
+		return fmt.Errorf("codex r2.2 wire contract %q does not support purpose %q", contract.ID, purpose)
 	}
 	if raw := strings.TrimSpace(headers.Get("x-codex-turn-metadata")); raw != "" {
 		if _, err := codexwire.ParseTurnMetadata(raw); err != nil {
-			return mode, nil, fmt.Errorf("invalid canonical codex turn metadata header: %w", err)
+			return fmt.Errorf("invalid canonical codex turn metadata header: %w", err)
 		}
 	}
 	if _, present, err := codexwire.ParseEmbeddedTurnMetadata(body); present && err != nil {
-		return mode, nil, fmt.Errorf("invalid canonical codex turn metadata: %w", err)
+		return fmt.Errorf("invalid canonical codex turn metadata: %w", err)
 	}
-	return mode, &contract, nil
+	return nil
 }
 
 func codexR2WSCompatibilityDigest(
@@ -320,14 +335,13 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 		if observer := s.getCodexR2Observer(); observer != nil {
 			recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageProposed, purpose, profile.ID, "wire_contract_invalid")
 		}
-		if wireMode == config.CodexR2WireModeEnforce {
-			return nil, wireErr
+		if wireMode == config.CodexR2WireModeShadow {
+			// A wire-shadow evidence gap must not modify the already-deployed R2
+			// behavior. It stays visible in diagnostics and the real request uses the
+			// current R2 contract.
+			wireMode = config.CodexR2WireModeOff
+			wireContract = nil
 		}
-		// A wire-shadow evidence gap must not modify the already-deployed R2
-		// behavior. It stays visible in diagnostics and the real request uses the
-		// current R2 contract.
-		wireMode = config.CodexR2WireModeOff
-		wireContract = nil
 	}
 	attempt := &codexR2Attempt{
 		Policy:         policy,
@@ -370,6 +384,9 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 	if errors.Is(getErr, sql.ErrNoRows) {
 		if !r2.NewSessionAdmission {
 			return nil, ErrCodexR2AdmissionRequired
+		}
+		if wireMode == config.CodexR2WireModeEnforce && wireErr != nil {
+			return nil, wireErr
 		}
 		admission := CodexR2Admission{
 			AccountID:        account.ID,
@@ -426,6 +443,9 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 		contract, ok := codexwire.ContractForProfile(profile.ID)
 		if !ok {
 			return nil, ErrCodexR2WireIntegrity
+		}
+		if err := validateCodexR2WireContractRequest(contract, purpose, headers, body, true); err != nil {
+			return nil, err
 		}
 		wireStore, ok := s.codexR2State.(codexR2WireRuntimeStateStore)
 		if !ok {

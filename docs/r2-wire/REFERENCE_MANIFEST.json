@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "implementation_baseline": "6afffd9a27864fd6b81a05efe832f97d2e8e2362",
+  "reference_repository": "openai/codex",
+  "contracts": [
+    {
+      "contract_id": "codex-wire-0.154-r1",
+      "reference_tag": "rust-v0.154.0",
+      "reference_commit": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+      "evidence_complete": true,
+      "files": [
+        {"path":"codex-rs/core/src/responses_metadata.rs","git_blob_sha1":"3c1fd729fb7792a2b49e3347749eaff76eb1e6e6","sha256":"715e28a3b05262e57bad12a23364ebf7ded38e41ad795d57defd72efed0129aa"},
+        {"path":"codex-rs/core/tests/suite/prompt_cache_key.rs","git_blob_sha1":"5e258a936f542c5342612c11bf76d4471472f390","sha256":"4fe4973eafd441a456cd9e03715f4d4ca45dddd3d1ae92a30eb37fbc55fdc89a"},
+        {"path":"codex-rs/login/src/auth/default_client.rs","git_blob_sha1":"cd4cbd5431a785b0a1f2a9963b1536d2edf135ec","sha256":"e50fc9a61d4b91127e2c248e15d45e735831e4070c396fa8efbc693717cfb23b"},
+        {"path":"codex-rs/codex-api/src/requests/headers.rs","git_blob_sha1":"c5cede8ac63c8d7da8aafc6323795e24c98f8da2","sha256":"98c9579a8f17327fda1792ffbf22e8d09241fdc79620c37b699d94cd9637cd47"},
+        {"path":"codex-rs/core/src/client.rs","git_blob_sha1":"a813022548c9e714d6ccf07c99513367f8bc78f2","sha256":"6979098f4ad7b5ec16f19ca90d5c927d3b1e33d0f6d926c70388d0237c52af35"}
+      ]
+    },
+    {
+      "contract_id": "codex-wire-0.155.1-r1",
+      "reference_tag": "rust-v0.155.1",
+      "reference_commit": "be2951ea34f0d295ed0becf97079f92fa5f6950e",
+      "evidence_complete": false,
+      "files": [],
+      "evidence_gaps": [
+        "Pinned source commit is fixed in the existing validated R2 profile, but exact per-file hashes could not be refreshed in this task because GitHub/raw fetches failed with TLS/DNS transport errors.",
+        "The 0.155.1 contract remains code-registered for the already validated compatibility profile, but release review must not treat missing refreshed source hashes as new independent official-source evidence."
+      ]
+    }
+  ],
+  "moving_main_policy": "Moving main may be inspected only for drift discovery. It cannot mutate the runtime contract registry or enable a new client version.",
+  "production_policy": "This manifest is development evidence only. R2.2 wire_contract_mode remains off by default and production activation requires a separate approval."
+}

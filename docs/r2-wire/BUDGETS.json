@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "status": "frozen_before_r2_2_measurement",
+  "baseline_commit": "6afffd9a27864fd6b81a05efe832f97d2e8e2362",
+  "planner_p95_limit_ms": 1,
+  "end_to_end_p95_max_regression_pct": 5,
+  "observer_and_wire_state_added_rss_limit_bytes": 67108864,
+  "warmup_seconds": 300,
+  "measurement_seconds": 7200,
+  "requests_per_second_per_version": 20,
+  "required_zero": ["unintended_replay","cross_scope_use","unintended_merge","unintended_split","incorrect_known_lineage","extra_real_upstream_request"],
+  "real_model_requests": 0,
+  "notes": [
+    "Budgets are inherited from the approved R2 plan rather than relaxed after implementation.",
+    "A missing official-source fixture or unobserved protocol scenario is not evidence of zero defects."
+  ]
+}

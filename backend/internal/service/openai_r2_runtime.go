@@ -224,6 +224,7 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 				zap.Int64("account_id", account.ID),
 				zap.String("code", conflict.Code),
 				zap.String("role", string(conflict.Role)),
+				zap.String("reason", conflict.Message),
 			)
 		}
 		if observer := s.getCodexR2Observer(); observer != nil {

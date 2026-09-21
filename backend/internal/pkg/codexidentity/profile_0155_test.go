@@ -81,3 +81,52 @@ func TestCompatibilityProfileSelectsOnlyQualifiedKnownVersions(t *testing.T) {
 		})
 	}
 }
+
+func TestCompatibilityFallbackEligibleOnlyForWellFormedUnpinnedClients(t *testing.T) {
+	base := http.Header{
+		"Originator": {"codex_cli_rs"},
+		"Version":    {"0.153.4"},
+		"User-Agent": {"codex_cli_rs/0.153.4"},
+	}
+	require.True(t, CompatibilityFallbackEligible(
+		Codex0154To0155CompatibilityID,
+		Capture(base, nil, DefaultLimits()),
+	))
+
+	missingUA := base.Clone()
+	missingUA.Del("User-Agent")
+	require.False(t, CompatibilityFallbackEligible(
+		Codex0154To0155CompatibilityID,
+		Capture(missingUA, nil, DefaultLimits()),
+	))
+
+	conflictingVersion := base.Clone()
+	conflictingVersion.Set("Version", "0.156.0")
+	require.False(t, CompatibilityFallbackEligible(
+		Codex0154To0155CompatibilityID,
+		Capture(conflictingVersion, nil, DefaultLimits()),
+	))
+
+	conflictingOriginator := base.Clone()
+	conflictingOriginator.Set("Originator", "codex-tui")
+	require.False(t, CompatibilityFallbackEligible(
+		Codex0154To0155CompatibilityID,
+		Capture(conflictingOriginator, nil, DefaultLimits()),
+	))
+
+	knownButConflicting := http.Header{
+		"User-Agent": {"codex-tui/0.155.1 (Windows 10.0.26200; x86_64) WindowsTerminal"},
+		"Originator": {"codex-tui"},
+		"Version":    {"0.154.0"},
+	}
+	require.False(t, CompatibilityFallbackEligible(
+		Codex0154To0155CompatibilityID,
+		Capture(knownButConflicting, nil, DefaultLimits()),
+	))
+
+	unrecognized := http.Header{"User-Agent": {"curl/8.0"}, "Version": {"8.0.0"}}
+	require.False(t, CompatibilityFallbackEligible(
+		Codex0154To0155CompatibilityID,
+		Capture(unrecognized, nil, DefaultLimits()),
+	))
+}

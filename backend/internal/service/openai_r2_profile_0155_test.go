@@ -122,6 +122,95 @@ func TestPrepareCodexR2AttemptCompatibilityProfileAcceptsQualifiedMixedVersions(
 	}
 }
 
+func TestPrepareCodexR2AttemptCompatibilityProfileFallsBackUnknownVersionsInEnforce(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name      string
+		userAgent string
+		version   string
+	}{
+		{name: "legacy-0153", userAgent: "codex_cli_rs/0.153.4", version: "0.153.4"},
+		{name: "desktop-alpha", userAgent: "Codex Desktop/0.155.0-alpha.9 (Windows 10.0.26200; x86_64) unknown (Codex Desktop; 26.915.31029)", version: "0.155.0-alpha.9"},
+		{name: "desktop-alpha-patch", userAgent: "Codex Desktop/0.155.0-alpha.9.2 (Windows 10.0.26200; x86_64) unknown (Codex Desktop; 26.915.31945)", version: "0.155.0-alpha.9.2"},
+		{name: "future", userAgent: "codex-tui/0.156.0 (Windows 10.0.26200; x86_64) WindowsTerminal", version: "0.156.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := syntheticR2Config()
+			cfg.Gateway.CodexR2.Mode = config.CodexR2ModeEnforce
+			cfg.Gateway.CodexR2.WireContractMode = config.CodexR2WireModeEnforce
+			cfg.Gateway.CodexR2.NewSessionAdmission = true
+			cfg.Gateway.CodexR2.ReferenceProfile = codexidentity.Codex0154To0155CompatibilityID
+			svc := &OpenAIGatewayService{cfg: cfg}
+			account := &Account{ID: 8, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true}
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			c.Set("api_key", &APIKey{ID: 77})
+			headers := http.Header{
+				"User-Agent": {tc.userAgent},
+				"Version":    {tc.version},
+			}
+
+			attempt, err := svc.prepareCodexR2Attempt(context.Background(), c, account, headers, []byte(`{"model":"gpt-5.6-sol"}`), codexidentity.PurposeInference)
+			require.NoError(t, err)
+			require.Nil(t, attempt, "unknown versions must bypass R2/R2.2 rather than fail the request")
+			require.Nil(t, stagedCodexR2Attempt(c))
+			require.False(t, HasOpsClientBusinessLimited(c), "safe compatibility fallback is not an error")
+		})
+	}
+}
+
+func TestPrepareCodexR2AttemptExactProfileMismatchRemainsFailClosedAndLocallyAttributed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := syntheticR2Config()
+	cfg.Gateway.CodexR2.Mode = config.CodexR2ModeEnforce
+	cfg.Gateway.CodexR2.ReferenceProfile = codexidentity.Codex0155ProfileID
+	svc := &OpenAIGatewayService{cfg: cfg}
+	account := &Account{ID: 8, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Set("api_key", &APIKey{ID: 77})
+	headers := http.Header{
+		"User-Agent":          {"codex-tui/0.156.0 (Windows 10.0.26200; x86_64) WindowsTerminal"},
+		"Originator":          {"codex-tui"},
+		"Version":             {"0.156.0"},
+		"Session-Id":          {"0199a1b2-c3d4-7e5f-8a9b-111111111111"},
+		"Thread-Id":           {"0199a1b2-c3d4-7e5f-8a9b-222222222222"},
+		"X-Client-Request-Id": {"0199a1b2-c3d4-7e5f-8a9b-222222222222"},
+	}
+
+	attempt, err := svc.prepareCodexR2Attempt(context.Background(), c, account, headers, []byte(`{"prompt_cache_key":"0199a1b2-c3d4-7e5f-8a9b-111111111111"}`), codexidentity.PurposeInference)
+	require.Error(t, err)
+	require.Nil(t, attempt)
+	require.True(t, HasOpsClientBusinessLimited(c))
+	require.Equal(t, OpsClientBusinessLimitedReasonLocalCompatibilityPolicy, OpsClientBusinessLimitedReason(c))
+}
+
+func TestPrepareCodexR2AttemptCompatibilityIdentityConflictRemainsFailClosed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := syntheticR2Config()
+	cfg.Gateway.CodexR2.Mode = config.CodexR2ModeEnforce
+	cfg.Gateway.CodexR2.ReferenceProfile = codexidentity.Codex0154To0155CompatibilityID
+	svc := &OpenAIGatewayService{cfg: cfg}
+	account := &Account{ID: 8, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Set("api_key", &APIKey{ID: 77})
+	headers := http.Header{
+		"User-Agent": {"codex_cli_rs/0.153.4"},
+		"Originator": {"codex_cli_rs"},
+		"Version":    {"0.156.0"},
+	}
+
+	attempt, err := svc.prepareCodexR2Attempt(context.Background(), c, account, headers, []byte(`{"model":"gpt-5.6-sol"}`), codexidentity.PurposeInference)
+	require.Error(t, err)
+	require.Nil(t, attempt)
+	require.True(t, HasOpsClientBusinessLimited(c))
+	require.Equal(t, OpsClientBusinessLimitedReasonLocalCompatibilityPolicy, OpsClientBusinessLimitedReason(c))
+}
+
 func TestR22EnforceDoesNotReinterpretExistingR2V1BindingWithIncomplete0155Evidence(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := syntheticR2Config()

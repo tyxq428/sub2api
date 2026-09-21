@@ -1249,7 +1249,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				entry.UpstreamStatusCode = &finalStatus
 			}
 		}
-		suppressOpsUpstreamAttributionForLocalModelConfiguration(c, entry)
+		suppressOpsUpstreamAttributionForLocalGatewayPolicy(c, entry)
 
 		if apiKey != nil {
 			entry.APIKeyID = &apiKey.ID
@@ -1741,8 +1741,21 @@ func applyOpsUpstreamErrorEvents(entry *service.OpsInsertErrorLogInput, events [
 	}
 }
 
-func suppressOpsUpstreamAttributionForLocalModelConfiguration(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
-	if entry == nil || !service.HasOpsClientBusinessLimited(c) || service.OpsClientBusinessLimitedReason(c) != service.OpsClientBusinessLimitedReasonLocalModelConfiguration {
+func isOpsLocalGatewayPolicy(c *gin.Context) bool {
+	if !service.HasOpsClientBusinessLimited(c) {
+		return false
+	}
+	switch service.OpsClientBusinessLimitedReason(c) {
+	case service.OpsClientBusinessLimitedReasonLocalModelConfiguration,
+		service.OpsClientBusinessLimitedReasonLocalCompatibilityPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+func suppressOpsUpstreamAttributionForLocalGatewayPolicy(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	if entry == nil || !isOpsLocalGatewayPolicy(c) {
 		return
 	}
 	entry.AccountID = nil
@@ -2214,6 +2227,8 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	routingCapacityLimited := isOpsRoutingCapacityLimited(c)
 	clientBusinessLimited := service.HasOpsClientBusinessLimited(c)
 	localModelConfiguration := clientBusinessLimited && service.OpsClientBusinessLimitedReason(c) == service.OpsClientBusinessLimitedReasonLocalModelConfiguration
+	localCompatibilityPolicy := clientBusinessLimited && service.OpsClientBusinessLimitedReason(c) == service.OpsClientBusinessLimitedReasonLocalCompatibilityPolicy
+	localGatewayPolicy := localModelConfiguration || localCompatibilityPolicy
 	// 分组模型白名单的入口拒绝发生在调度之前（本地面请求策略，业务限流原因与
 	// 账号模型映射复用 local_model_configuration）：保持 classifyOpsPhase 的
 	// 自然分类（not_found/invalid_request → request，owner=client），不落到
@@ -2224,24 +2239,24 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	}
 	upstreamError := hasOpsUpstreamErrorContext(c)
 	accountAuthFailure := hasOpsAccountAuthFailure(c)
-	if localModelConfiguration && !ingressModelNotAllowed {
+	if localGatewayPolicy && !(localModelConfiguration && ingressModelNotAllowed) {
 		phase = "routing"
 	} else if accountAuthFailure && !routingCapacityLimited {
 		phase = "account_auth"
 	} else if upstreamError && !routingCapacityLimited {
 		phase = "upstream"
 	}
-	if clientBusinessLimited && !upstreamError && !routingCapacityLimited && !localModelConfiguration {
+	if clientBusinessLimited && !upstreamError && !routingCapacityLimited && !localGatewayPolicy {
 		phase = "auth"
 	}
 	if routingCapacityLimited {
 		phase = "routing"
 	}
 	msg := strings.ToLower(message)
-	effectiveUpstreamError := upstreamError && !localModelConfiguration
+	effectiveUpstreamError := upstreamError && !localGatewayPolicy
 	localClientAuthError := !effectiveUpstreamError && phase == "auth" && isOpsClientAuthError(code, msg)
 	localBusinessLimited := !effectiveUpstreamError && classifyOpsIsBusinessLimited(errType, phase, code, status, message, localClientAuthError)
-	isBusinessLimited = localModelConfiguration || routingCapacityLimited || (clientBusinessLimited && !effectiveUpstreamError) || localBusinessLimited
+	isBusinessLimited = localGatewayPolicy || routingCapacityLimited || (clientBusinessLimited && !effectiveUpstreamError) || localBusinessLimited
 	errorOwner = classifyOpsErrorOwner(phase, message)
 	errorSource = classifyOpsErrorSource(phase, message)
 	return phase, isBusinessLimited, errorOwner, errorSource

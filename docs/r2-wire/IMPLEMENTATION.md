@@ -28,6 +28,13 @@ Changing this repository does not authorize production activation.
    - wire contract selection is read-only in shadow;
    - new enforce admissions persist the contract beside the policy binding;
    - existing r2-v1 sessions cannot be silently upgraded;
+   - compatibility selectors gate R2/R2.2 eligibility rather than general
+     request admission: an otherwise normal unpinned Codex version records
+     unknown-profile telemetry and falls back to the pre-R2.2 path instead of
+     receiving a generic 502;
+   - deterministic conflicts after a known profile is selected still fail
+     closed and are attributed to the local compatibility policy, not to the
+     upstream provider;
    - the WS compatibility digest includes the persisted contract for R2.2
      bindings.
 5. Final HTTP envelope

@@ -50,3 +50,71 @@ func ResolveValidatedClientIdentity(profile ProtocolProfile, userAgent, originat
 		Reason:     "validated",
 	}, nil
 }
+
+// CompatibilityFallbackEligible reports whether a compatibility selector
+// failed only because an otherwise well-formed official Codex client version
+// is not pinned by that selector. Missing/ambiguous user agents and conflicting
+// Originator/Version headers remain fail-closed.
+func CompatibilityFallbackEligible(referenceProfile string, snapshot RawSnapshot) bool {
+	if strings.TrimSpace(referenceProfile) != Codex0154To0155CompatibilityID {
+		return false
+	}
+
+	userAgents := make(map[string]struct{})
+	originators := make(map[string]struct{})
+	versions := make(map[string]struct{})
+	for _, field := range snapshot.Fields() {
+		if field.Carrier != CarrierHeader {
+			continue
+		}
+		value := strings.TrimSpace(field.Value)
+		if value == "" {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(field.Name)) {
+		case "user-agent":
+			userAgents[value] = struct{}{}
+		case "originator":
+			originators[value] = struct{}{}
+		case "version":
+			versions[value] = struct{}{}
+		}
+	}
+	if len(userAgents) != 1 || len(originators) > 1 || len(versions) > 1 {
+		return false
+	}
+
+	var userAgent string
+	for value := range userAgents {
+		userAgent = value
+	}
+	pairedOriginator, pairedUA, ok := openai.PairCodexClientIdentity(userAgent)
+	if !ok {
+		return false
+	}
+	uaVersion := strings.TrimSpace(openai.CodexUserAgentVersion(pairedUA))
+	if !clientVersionPattern.MatchString(uaVersion) {
+		return false
+	}
+
+	// A pinned version that failed resolution implies some conflicting identity
+	// signal; it must not be converted into a compatibility fallback.
+	for _, profileID := range []string{Codex0154ProfileID, Codex0155ProfileID} {
+		profile, ok := ProfileByID(profileID)
+		if ok && uaVersion == profile.ClientVersion {
+			return false
+		}
+	}
+
+	for originator := range originators {
+		if !strings.EqualFold(originator, pairedOriginator) {
+			return false
+		}
+	}
+	for version := range versions {
+		if version != uaVersion {
+			return false
+		}
+	}
+	return true
+}

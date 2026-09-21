@@ -266,6 +266,13 @@ func stagedCodexR2Attempt(c *gin.Context) *codexR2Attempt {
 	return attempt
 }
 
+func codexR2LocalPolicyError(c *gin.Context, err error) error {
+	if err != nil {
+		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalCompatibilityPolicy)
+	}
+	return err
+}
+
 func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 	ctx context.Context,
 	c *gin.Context,
@@ -285,8 +292,17 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 		if observer := s.getCodexR2Observer(); observer != nil {
 			recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageInput, purpose, policy.ReferenceProfile, "unknown_profile")
 		}
+		// A compatibility selector is an eligibility gate for evidence-backed R2/R2.2
+		// behavior, not a global allowlist for otherwise valid Codex clients. Unknown
+		// versions therefore stay out of R2/R2.2 and continue on the pre-R2 path.
+		// Exact profile references remain strict operator policy and keep failing
+		// closed in enforce mode.
+		if codexidentity.CompatibilityFallbackEligible(policy.ReferenceProfile, raw) {
+			stageCodexR2Attempt(c, nil)
+			return nil, nil
+		}
 		if policy.Mode == codexidentity.ModeEnforce {
-			return nil, fmt.Errorf("unsupported codex r2 profile %q", policy.ReferenceProfile)
+			return nil, codexR2LocalPolicyError(c, fmt.Errorf("unsupported codex r2 profile %q", policy.ReferenceProfile))
 		}
 		return nil, nil
 	}
@@ -302,7 +318,7 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 			recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageProposed, purpose, profile.ID, "scope_unknown")
 		}
 		if policy.Mode == codexidentity.ModeEnforce {
-			return nil, ErrCodexR2BindingInvalid
+			return nil, codexR2LocalPolicyError(c, ErrCodexR2BindingInvalid)
 		}
 		return nil, nil
 	}
@@ -317,7 +333,7 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 	})
 	if err != nil {
 		if policy.Mode == codexidentity.ModeEnforce {
-			return nil, err
+			return nil, codexR2LocalPolicyError(c, err)
 		}
 		return nil, nil
 	}
@@ -340,7 +356,7 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 			recordCodexR2Observation(observer, account.ID, raw, codexidentity.StageProposed, purpose, profile.ID, "plan_conflict")
 		}
 		if policy.Mode == codexidentity.ModeEnforce {
-			return nil, err
+			return nil, codexR2LocalPolicyError(c, err)
 		}
 		return nil, nil
 	}
@@ -386,11 +402,11 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 	}
 
 	if s.codexR2State == nil {
-		return nil, ErrCodexR2AdmissionRequired
+		return nil, codexR2LocalPolicyError(c, ErrCodexR2AdmissionRequired)
 	}
 	sessionRaw := codexidentity.BuildGraph(raw, profile).Current(codexidentity.RoleSession)
 	if sessionRaw == "" {
-		return nil, ErrCodexR2AdmissionRequired
+		return nil, codexR2LocalPolicyError(c, ErrCodexR2AdmissionRequired)
 	}
 	authDigest := codexR2Digest([]byte(r2.MappingHMACKey), "auth-scope", authScope)
 	sessionDigest := codexR2Digest([]byte(r2.MappingHMACKey), "session", sessionRaw)
@@ -398,10 +414,10 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 	binding, getErr := s.codexR2State.GetBinding(ctx, account.ID, authDigest, sessionDigest)
 	if errors.Is(getErr, sql.ErrNoRows) {
 		if !r2.NewSessionAdmission {
-			return nil, ErrCodexR2AdmissionRequired
+			return nil, codexR2LocalPolicyError(c, ErrCodexR2AdmissionRequired)
 		}
 		if wireMode == config.CodexR2WireModeEnforce && wireErr != nil {
-			return nil, wireErr
+			return nil, codexR2LocalPolicyError(c, wireErr)
 		}
 		admission := CodexR2Admission{
 			AccountID:        account.ID,
@@ -415,11 +431,11 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 		}
 		if wireMode == config.CodexR2WireModeEnforce && wireContract != nil {
 			if err := validateCodexR22AuthOwner(profile, identitySource); err != nil {
-				return nil, err
+				return nil, codexR2LocalPolicyError(c, err)
 			}
 			wireStore, ok := s.codexR2State.(codexR2WireRuntimeStateStore)
 			if !ok {
-				return nil, ErrCodexR2WireIntegrity
+				return nil, codexR2LocalPolicyError(c, ErrCodexR2WireIntegrity)
 			}
 			admission.PolicyRevision = codexR22WirePolicyRevision
 			wireAdmission := CodexR2WireContractAdmission{
@@ -443,7 +459,7 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 		return nil, getErr
 	}
 	if binding.Status != CodexR2BindingActive && binding.Status != CodexR2BindingDraining {
-		return nil, ErrCodexR2BindingInvalid
+		return nil, codexR2LocalPolicyError(c, ErrCodexR2BindingInvalid)
 	}
 	switch binding.PolicyRevision {
 	case codexR2PolicyRevision:
@@ -460,44 +476,44 @@ func (s *OpenAIGatewayService) prepareCodexR2Attempt(
 	case codexR22WirePolicyRevision:
 		contract, ok := codexwire.ContractForProfile(profile.ID)
 		if !ok {
-			return nil, ErrCodexR2WireIntegrity
+			return nil, codexR2LocalPolicyError(c, ErrCodexR2WireIntegrity)
 		}
 		if err := validateCodexR22AuthOwner(profile, identitySource); err != nil {
-			return nil, err
+			return nil, codexR2LocalPolicyError(c, err)
 		}
 		if err := validateCodexR2WireContractRequest(contract, purpose, headers, body, true); err != nil {
-			return nil, err
+			return nil, codexR2LocalPolicyError(c, err)
 		}
 		wireStore, ok := s.codexR2State.(codexR2WireRuntimeStateStore)
 		if !ok {
-			return nil, ErrCodexR2WireIntegrity
+			return nil, codexR2LocalPolicyError(c, ErrCodexR2WireIntegrity)
 		}
 		wireBinding := attempt.WireBinding
 		if wireBinding == nil {
 			wireBinding, getErr = wireStore.GetWireContractBinding(ctx, binding.ID)
 			if getErr != nil {
-				return nil, ErrCodexR2WireIntegrity
+				return nil, codexR2LocalPolicyError(c, ErrCodexR2WireIntegrity)
 			}
 		}
 		if wireBinding.ContractID != contract.ID ||
 			wireBinding.ContractSHA256 != contract.Digest() ||
 			wireBinding.ReferenceCommit != contract.ReferenceCommit ||
 			wireBinding.GraphRevision != contract.GraphRevision {
-			return nil, ErrCodexR2WireIntegrity
+			return nil, codexR2LocalPolicyError(c, ErrCodexR2WireIntegrity)
 		}
 		attempt.WireMode = config.CodexR2WireModeEnforce
 		attempt.WireContract = &contract
 		attempt.WireBinding = wireBinding
 		attempt.PolicyRevision = codexR22WirePolicyRevision
 	default:
-		return nil, ErrCodexR2BindingInvalid
+		return nil, codexR2LocalPolicyError(c, ErrCodexR2BindingInvalid)
 	}
 	if binding.ProfileRevision != profile.ID ||
 		binding.MappingAlgorithm != codexR2MappingAlgorithm ||
 		binding.MappingKeyEpoch != r2.MappingKeyEpoch ||
 		binding.NamespaceDigest != namespaceDigest ||
 		binding.UAPolicy != policy.ClientUAMode {
-		return nil, ErrCodexR2BindingInvalid
+		return nil, codexR2LocalPolicyError(c, ErrCodexR2BindingInvalid)
 	}
 	attempt.Binding = binding
 	compatContract := attempt.WireContract
@@ -542,7 +558,7 @@ func (s *OpenAIGatewayService) finalizeCodexR2TransportEnvelope(
 	if err := validateOpenAIResponsesFinalEnvelope(req, semanticBody); err != nil {
 		s.recordCodexR2Actual(account, attempt, req.Header, semanticBody, "transport_invalid")
 		if attempt.WireMode == config.CodexR2WireModeEnforce {
-			return err
+			return codexR2LocalPolicyError(c, err)
 		}
 		logger.L().Warn("codex_r2_wire_transport_invalid",
 			zap.Int64("account_id", account.ID),
@@ -580,7 +596,7 @@ func applyCodexR2HeaderPlan(c *gin.Context, headers http.Header) error {
 	}
 	projected, err := codexidentity.ProjectHeaders(headers, attempt.Plan)
 	if err != nil {
-		return err
+		return codexR2LocalPolicyError(c, err)
 	}
 	for name := range headers {
 		delete(headers, name)
@@ -588,7 +604,10 @@ func applyCodexR2HeaderPlan(c *gin.Context, headers http.Header) error {
 	for name, values := range projected {
 		headers[name] = append([]string(nil), values...)
 	}
-	return applyCodexR2ClientIdentity(headers, attempt.Plan)
+	if err := applyCodexR2ClientIdentity(headers, attempt.Plan); err != nil {
+		return codexR2LocalPolicyError(c, err)
+	}
+	return nil
 }
 
 func codexR2WSCompatibility(c *gin.Context) string {

@@ -889,6 +889,68 @@ func TestClassifyOpsLocalModelConfigurationOverridesStaleUpstreamMarkers(t *test
 	require.Equal(t, "gateway", source)
 }
 
+func TestClassifyOpsLocalCompatibilityPolicyIsPlatformRoutingNotUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalCompatibilityPolicy)
+
+	phase, limited, owner, source := classifyOpsErrorLog(
+		c,
+		"upstream_error",
+		"Upstream request failed",
+		"",
+		http.StatusBadGateway,
+	)
+
+	require.Equal(t, "routing", phase)
+	require.True(t, limited)
+	require.Equal(t, "platform", owner)
+	require.Equal(t, "gateway", source)
+}
+
+func TestOpsErrorLoggerMiddleware_LocalCompatibilityPolicyClearsUpstreamAttribution(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 1)
+	gin.SetMode(gin.TestMode)
+
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := gin.New()
+	router.Use(OpsErrorLoggerMiddleware(ops))
+	router.POST("/v1/responses", func(c *gin.Context) {
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalCompatibilityPolicy)
+		c.Set(opsAccountIDKey, int64(8))
+		c.Set(opsUpstreamModelKey, "stale-upstream-model")
+		setActualUpstreamEndpoint(c, "/v1/responses")
+		c.Set(service.OpsUpstreamStatusCodeKey, http.StatusBadGateway)
+		c.Set(service.OpsUpstreamErrorMessageKey, "stale upstream error")
+		c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{{
+			Stage:              string(service.GatewayFailureStageInference),
+			UpstreamStatusCode: http.StatusBadGateway,
+			Message:            "stale provider failure",
+		}})
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{
+			"type":    "upstream_error",
+			"message": "Upstream request failed",
+		}})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadGateway, w.Code)
+	job := <-opsErrorLogQueue
+	require.Equal(t, "routing", job.entry.ErrorPhase)
+	require.True(t, job.entry.IsBusinessLimited)
+	require.Equal(t, "platform", job.entry.ErrorOwner)
+	require.Equal(t, "gateway", job.entry.ErrorSource)
+	require.Nil(t, job.entry.AccountID)
+	require.Nil(t, job.entry.UpstreamStatusCode)
+	require.Nil(t, job.entry.UpstreamErrors)
+	require.Nil(t, job.entry.UpstreamErrorMessage)
+	require.Empty(t, job.entry.UpstreamEndpoint)
+	require.Empty(t, job.entry.UpstreamModel)
+}
+
 func TestClassifyOpsLocalModelConfigurationRequiresMarkerAndReason(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())

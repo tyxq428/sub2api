@@ -612,6 +612,15 @@ func (s *OpenAIGatewayService) ResolveChannelMappingAndRestrict(ctx context.Cont
 	return s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, model)
 }
 
+// ResolveGroupAndChannelMapping resolves the group alias before channel
+// mapping so OpenAI account scheduling sees the effective model.
+func (s *OpenAIGatewayService) ResolveGroupAndChannelMapping(ctx context.Context, group *Group, groupID *int64, model string) (ChannelMappingResult, bool) {
+	if s.channelService == nil {
+		return ResolveGroupMappingWithoutChannel(group, model), false
+	}
+	return s.channelService.ResolveGroupAndChannelMapping(ctx, group, groupID, model)
+}
+
 func (s *OpenAIGatewayService) isCodexImageGenerationBridgeEnabled(ctx context.Context, account *Account, apiKey *APIKey) bool {
 	if override := account.CodexImageGenerationBridgeOverride(); override != nil {
 		return *override

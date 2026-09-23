@@ -114,7 +114,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	setOpsRequestContext(c, clientRequestModel, parsed.Stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsed.Stream, false)))
 
-	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, routingModel)
+	channelMapping, _ := h.gatewayService.ResolveGroupAndChannelMapping(c.Request.Context(), apiKey.Group, apiKey.GroupID, routingModel)
 
 	if h.errorPassthroughService != nil {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)

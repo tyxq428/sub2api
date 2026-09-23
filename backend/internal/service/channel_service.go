@@ -105,9 +105,11 @@ type channelCache struct {
 
 // ChannelMappingResult 渠道映射查找结果
 type ChannelMappingResult struct {
-	MappedModel        string // 映射后的模型名（无映射时等于原始模型名）
+	MappedModel        string // 分组/渠道映射后的最终模型名（无映射时等于原始模型名）
+	GroupMappedModel   string // 分组映射后的中间模型名；未命中时为空
 	ChannelID          int64  // 渠道 ID（0 = 无渠道关联）
-	Mapped             bool   // 是否发生了映射
+	Mapped             bool   // 分组或渠道任一层是否发生了映射
+	GroupMapped        bool   // 是否命中分组级模型映射
 	BillingModelSource string // 计费模型来源（"requested" / "upstream" / "channel_mapped" / "response_model"）
 }
 
@@ -116,16 +118,28 @@ type ChannelMappingResult struct {
 // upstreamModel: 上游实际使用的模型名（ForwardResult.UpstreamModel）。
 // 返回空字符串表示无映射。
 func (r ChannelMappingResult) BuildModelMappingChain(reqModel, upstreamModel string) string {
-	if !r.Mapped {
-		if upstreamModel != "" && upstreamModel != reqModel {
-			return reqModel + "→" + upstreamModel
+	steps := make([]string, 0, 4)
+	appendStep := func(model string) {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			return
 		}
+		if len(steps) == 0 || steps[len(steps)-1] != model {
+			steps = append(steps, model)
+		}
+	}
+	appendStep(reqModel)
+	if r.GroupMapped {
+		appendStep(r.GroupMappedModel)
+	}
+	if r.Mapped {
+		appendStep(r.MappedModel)
+	}
+	appendStep(upstreamModel)
+	if len(steps) <= 1 {
 		return ""
 	}
-	if upstreamModel != "" && upstreamModel != r.MappedModel {
-		return reqModel + "→" + r.MappedModel + "→" + upstreamModel
-	}
-	return reqModel + "→" + r.MappedModel
+	return strings.Join(steps, "→")
 }
 
 // ToUsageFields 将渠道映射结果转为使用记录字段
@@ -600,6 +614,43 @@ func (s *ChannelService) ResolveChannelMappingAndRestrict(ctx context.Context, g
 		return ChannelMappingResult{MappedModel: model}, false
 	}
 	return resolveMapping(lk, *groupID, model), false
+}
+
+// ResolveGroupAndChannelMapping applies the group mapping first and then the
+// channel mapping. Group mapping is independent of channels and therefore also
+// works for groups that are not bound to a channel.
+func (s *ChannelService) ResolveGroupAndChannelMapping(ctx context.Context, group *Group, groupID *int64, model string) (ChannelMappingResult, bool) {
+	result := ResolveGroupMappingWithoutChannel(group, model)
+	effectiveModel := result.MappedModel
+	if groupID == nil {
+		return result, false
+	}
+	lk, _ := s.lookupGroupChannel(ctx, *groupID)
+	if lk == nil {
+		return result, false
+	}
+	channelResult := resolveMapping(lk, *groupID, effectiveModel)
+	result.ChannelID = channelResult.ChannelID
+	result.BillingModelSource = channelResult.BillingModelSource
+	if channelResult.Mapped {
+		result.Mapped = true
+		result.MappedModel = channelResult.MappedModel
+	}
+	return result, false
+}
+
+// ResolveGroupMappingWithoutChannel returns a mapping result for callers whose
+// channel service is unavailable. Group mapping is a group policy, not a
+// channel feature.
+func ResolveGroupMappingWithoutChannel(group *Group, model string) ChannelMappingResult {
+	result := ChannelMappingResult{MappedModel: model}
+	if mapped, matched := group.ResolveModelMapping(model); matched && mapped != "" {
+		result.GroupMapped = true
+		result.GroupMappedModel = mapped
+		result.Mapped = true
+		result.MappedModel = mapped
+	}
+	return result
 }
 
 // resolveMapping 基于已查找的渠道信息解析模型映射。

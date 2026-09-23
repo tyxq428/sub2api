@@ -887,6 +887,57 @@
               </p>
             </div>
           </div>
+          <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+            <div class="mb-3">
+              <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t("admin.groups.modelAllowlist.mappingTitle") }}
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.modelAllowlist.mappingHint") }}
+              </p>
+            </div>
+            <div
+              v-if="createModelAllowlistState.modelMappings.length === 0"
+              class="mb-3 rounded border border-dashed border-gray-300 p-3 text-center text-xs text-gray-400 dark:border-dark-500"
+            >
+              {{ t("admin.groups.modelAllowlist.mappingEmpty") }}
+            </div>
+            <div v-else class="mb-3 space-y-2">
+              <div
+                v-for="(mapping, index) in createModelAllowlistState.modelMappings"
+                :key="`create-group-model-mapping-${index}`"
+                class="flex items-center gap-2"
+              >
+                <input
+                  v-model="mapping.from"
+                  type="text"
+                  class="input min-w-0 flex-1"
+                  :placeholder="t('admin.groups.modelAllowlist.mappingSource')"
+                />
+                <span class="text-sm text-gray-400">→</span>
+                <input
+                  v-model="mapping.to"
+                  type="text"
+                  class="input min-w-0 flex-1"
+                  :placeholder="t('admin.groups.modelAllowlist.mappingTarget')"
+                />
+                <button
+                  type="button"
+                  class="rounded p-2 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20"
+                  @click="removeCreateGroupModelMapping(index)"
+                >
+                  <Icon name="trash" size="sm" />
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-primary-400 hover:text-primary-600 dark:border-dark-500 dark:text-gray-400 dark:hover:border-primary-700 dark:hover:text-primary-400"
+              @click="addCreateGroupModelMapping"
+            >
+              + {{ t("admin.groups.modelAllowlist.addMapping") }}
+            </button>
+          </div>
         </div>
 
         <!-- 图片生成计费配置 -->
@@ -2526,6 +2577,57 @@
                 {{ t(editAllowlistCustomErrorKey) }}
               </p>
             </div>
+          </div>
+          <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+            <div class="mb-3">
+              <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t("admin.groups.modelAllowlist.mappingTitle") }}
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.modelAllowlist.mappingHint") }}
+              </p>
+            </div>
+            <div
+              v-if="editModelAllowlistState.modelMappings.length === 0"
+              class="mb-3 rounded border border-dashed border-gray-300 p-3 text-center text-xs text-gray-400 dark:border-dark-500"
+            >
+              {{ t("admin.groups.modelAllowlist.mappingEmpty") }}
+            </div>
+            <div v-else class="mb-3 space-y-2">
+              <div
+                v-for="(mapping, index) in editModelAllowlistState.modelMappings"
+                :key="`edit-group-model-mapping-${index}`"
+                class="flex items-center gap-2"
+              >
+                <input
+                  v-model="mapping.from"
+                  type="text"
+                  class="input min-w-0 flex-1"
+                  :placeholder="t('admin.groups.modelAllowlist.mappingSource')"
+                />
+                <span class="text-sm text-gray-400">→</span>
+                <input
+                  v-model="mapping.to"
+                  type="text"
+                  class="input min-w-0 flex-1"
+                  :placeholder="t('admin.groups.modelAllowlist.mappingTarget')"
+                />
+                <button
+                  type="button"
+                  class="rounded p-2 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20"
+                  @click="removeEditGroupModelMapping(index)"
+                >
+                  <Icon name="trash" size="sm" />
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-primary-400 hover:text-primary-600 dark:border-dark-500 dark:text-gray-400 dark:hover:border-primary-700 dark:hover:text-primary-400"
+              @click="addEditGroupModelMapping"
+            >
+              + {{ t("admin.groups.modelAllowlist.addMapping") }}
+            </button>
           </div>
         </div>
 
@@ -4927,6 +5029,18 @@ const submitEditAllowlistCustomEntry = () => {
     editAllowlistCustomErrorKey.value = `admin.groups.modelAllowlist.errors.${error}`;
   }
 };
+const addCreateGroupModelMapping = () => {
+  createModelAllowlistState.modelMappings.push({ from: "", to: "" });
+};
+const removeCreateGroupModelMapping = (index: number) => {
+  createModelAllowlistState.modelMappings.splice(index, 1);
+};
+const addEditGroupModelMapping = () => {
+  editModelAllowlistState.modelMappings.push({ from: "", to: "" });
+};
+const removeEditGroupModelMapping = (index: number) => {
+  editModelAllowlistState.modelMappings.splice(index, 1);
+};
 
 const createForm = reactive({
   name: "",
@@ -5207,6 +5321,7 @@ const resetModelAllowlistState = (
   state.enabled = fresh.enabled;
   state.savedModels = fresh.savedModels;
   state.items = fresh.items;
+  state.modelMappings = fresh.modelMappings;
 };
 
 const loadModelAllowlistCandidates = async (

@@ -2,11 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   addCustomModelAllowlistItem,
-  createModelAllowlistState,
-  type ModelAllowlistAddError,
-} from "../groupModelAllowlist";
-
-import {
   buildModelAllowlistConfig,
   createModelAllowlistState,
   hydrateModelAllowlistState,
@@ -15,6 +10,7 @@ import {
   selectAllModelAllowlistItems,
   setModelAllowlistCandidates,
   toggleModelAllowlistItem,
+  type ModelAllowlistAddError,
 } from "../groupModelAllowlist";
 
 describe("groupModelAllowlist", () => {
@@ -96,6 +92,30 @@ describe("groupModelAllowlist", () => {
     expect(buildModelAllowlistConfig(state)).toEqual({
       enabled: true,
       models: ["gpt-5.5", "gpt-5.4"],
+    });
+  });
+
+  it("round-trips group model mappings independently of the allowlist", () => {
+    const state = createModelAllowlistState({
+      enabled: false,
+      models: [],
+      model_mapping: {
+        "gpt-6-sol": "gpt-5.6-sol",
+      },
+    });
+
+    expect(state.modelMappings).toEqual([
+      { from: "gpt-6-sol", to: "gpt-5.6-sol" },
+    ]);
+    state.modelMappings.push({ from: " gpt-6-* ", to: " gpt-5.6-sol " });
+
+    expect(buildModelAllowlistConfig(state)).toEqual({
+      enabled: false,
+      models: [],
+      model_mapping: {
+        "gpt-6-sol": "gpt-5.6-sol",
+        "gpt-6-*": "gpt-5.6-sol",
+      },
     });
   });
 

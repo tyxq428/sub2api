@@ -1222,6 +1222,51 @@ func TestResolveChannelMappingAndRestrict_NoMapping(t *testing.T) {
 	require.Equal(t, "unknown-model", mapping.MappedModel)
 }
 
+func TestResolveGroupAndChannelMapping_ChainsBeforeAccountRouting(t *testing.T) {
+	group := &Group{
+		Platform: PlatformOpenAI,
+		ModelAllowlist: GroupModelAllowlist{ModelMapping: map[string]string{
+			"gpt-6-sol": "gpt-5.6-sol",
+		}},
+	}
+	ch := Channel{
+		ID:       1,
+		Status:   StatusActive,
+		GroupIDs: []int64{10},
+		ModelMapping: map[string]map[string]string{
+			"openai": {
+				"gpt-5.6-sol": "gpt-5.5",
+			},
+		},
+	}
+	repo := makeStandardRepo(ch, map[int64]string{10: "openai"})
+	svc := newTestChannelService(repo)
+	gid := int64(10)
+
+	mapping, restricted := svc.ResolveGroupAndChannelMapping(context.Background(), group, &gid, "gpt-6-sol")
+	require.False(t, restricted)
+	require.True(t, mapping.Mapped)
+	require.True(t, mapping.GroupMapped)
+	require.Equal(t, "gpt-5.6-sol", mapping.GroupMappedModel)
+	require.Equal(t, "gpt-5.5", mapping.MappedModel)
+	require.Equal(t, "gpt-6-sol→gpt-5.6-sol→gpt-5.5", mapping.BuildModelMappingChain("gpt-6-sol", "gpt-5.5"))
+}
+
+func TestResolveGroupMappingWithoutChannel(t *testing.T) {
+	group := &Group{
+		Platform: PlatformOpenAI,
+		ModelAllowlist: GroupModelAllowlist{ModelMapping: map[string]string{
+			"gpt-6-sol": "gpt-5.6-sol",
+		}},
+	}
+	mapping := ResolveGroupMappingWithoutChannel(group, "gpt-6-sol")
+	require.True(t, mapping.Mapped)
+	require.True(t, mapping.GroupMapped)
+	require.Zero(t, mapping.ChannelID)
+	require.Equal(t, "gpt-5.6-sol", mapping.MappedModel)
+	require.Equal(t, "gpt-6-sol→gpt-5.6-sol", mapping.BuildModelMappingChain("gpt-6-sol", "gpt-5.6-sol"))
+}
+
 // --- 4.6 Cache Building Specifics ---
 
 func TestBuildCache_DBError(t *testing.T) {

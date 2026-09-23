@@ -56,6 +56,27 @@ func TestNormalizeGroupModelAllowlist(t *testing.T) {
 			in:      GroupModelAllowlist{Enabled: false, Models: []string{"foo-*bar"}},
 			wantErr: "INVALID_MODEL_ALLOWLIST",
 		},
+		{
+			name: "mapping works independently of allowlist enablement",
+			in: GroupModelAllowlist{
+				Enabled:      false,
+				ModelMapping: map[string]string{" gpt-6-sol ": " gpt-5.6-sol "},
+			},
+			want: GroupModelAllowlist{
+				Enabled:      false,
+				ModelMapping: map[string]string{"gpt-6-sol": "gpt-5.6-sol"},
+			},
+		},
+		{
+			name:    "mapping source wildcard must be trailing",
+			in:      GroupModelAllowlist{ModelMapping: map[string]string{"gpt-*-sol": "gpt-5.6-sol"}},
+			wantErr: "INVALID_MODEL_MAPPING",
+		},
+		{
+			name:    "mapping target cannot contain wildcard",
+			in:      GroupModelAllowlist{ModelMapping: map[string]string{"gpt-6-*": "gpt-5.6-*"}},
+			wantErr: "INVALID_MODEL_MAPPING",
+		},
 	}
 
 	for _, tt := range tests {
@@ -81,7 +102,38 @@ func TestNormalizeGroupModelAllowlist(t *testing.T) {
 					t.Fatalf("models[%d] mismatch: got %q want %q", i, got.Models[i], tt.want.Models[i])
 				}
 			}
+			if len(got.ModelMapping) != len(tt.want.ModelMapping) {
+				t.Fatalf("model mapping mismatch: got %#v want %#v", got.ModelMapping, tt.want.ModelMapping)
+			}
+			for source, target := range tt.want.ModelMapping {
+				if got.ModelMapping[source] != target {
+					t.Fatalf("model mapping[%q] mismatch: got %q want %q", source, got.ModelMapping[source], target)
+				}
+			}
 		})
+	}
+}
+
+func TestGroupResolveModelMapping(t *testing.T) {
+	group := &Group{
+		Platform: PlatformOpenAI,
+		ModelAllowlist: GroupModelAllowlist{ModelMapping: map[string]string{
+			"gpt-6-sol": "gpt-5.6-sol",
+			"gpt-6-*":   "gpt-5.6-sol",
+		}},
+	}
+
+	mapped, matched := group.ResolveModelMapping("gpt-6-sol")
+	if !matched || mapped != "gpt-5.6-sol" {
+		t.Fatalf("exact mapping = (%q, %v), want (gpt-5.6-sol, true)", mapped, matched)
+	}
+	mapped, matched = group.ResolveModelMapping("gpt-6-pro")
+	if !matched || mapped != "gpt-5.6-sol" {
+		t.Fatalf("wildcard mapping = (%q, %v), want (gpt-5.6-sol, true)", mapped, matched)
+	}
+	mapped, matched = group.ResolveModelMapping("gpt-5.6-sol")
+	if matched || mapped != "gpt-5.6-sol" {
+		t.Fatalf("unmapped = (%q, %v), want passthrough", mapped, matched)
 	}
 }
 

@@ -83,7 +83,7 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		return
 	}
 
-	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	channelMapping, _ := h.gatewayService.ResolveGroupAndChannelMapping(c.Request.Context(), apiKey.Group, apiKey.GroupID, reqModel)
 	routingModel := reqModel
 	forwardBody := body
 	if channelMapping.Mapped {
@@ -245,7 +245,7 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	setOpsRequestContext(c, reqModel, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
 
-	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	channelMapping, _ := h.gatewayService.ResolveGroupAndChannelMapping(c.Request.Context(), apiKey.Group, apiKey.GroupID, reqModel)
 	mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
@@ -265,6 +265,9 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	c.Request = c.Request.WithContext(service.WithOpenAIProfitControlSuppressed(c.Request.Context()))
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	currentRoutingModel := routingModel
+	if channelMapping.Mapped {
+		currentRoutingModel = channelMapping.MappedModel
+	}
 	if preferredMappedModel != "" {
 		currentRoutingModel = preferredMappedModel
 	}

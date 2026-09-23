@@ -1093,6 +1093,12 @@ export default {
         customPlaceholder: 'Custom entry, e.g. claude-* or gpt-5.5-codex',
         addCustom: 'Add',
         emptySelectionError: 'The model allowlist is enabled; select or add at least one model entry',
+        mappingTitle: 'Model Mapping',
+        mappingHint: 'Map client-requested models to effective models. Group mapping runs before account mapping; the left side is the requested model and the right side is used for account scheduling and upstream forwarding. Request models may use a trailing * wildcard; targets cannot contain wildcards.',
+        mappingEmpty: 'No group model mappings yet. Add one below.',
+        mappingSource: 'Requested model, e.g. gpt-6-sol',
+        mappingTarget: 'Effective model, e.g. gpt-5.6-sol',
+        addMapping: 'Add model mapping',
         errors: {
           empty: 'Please enter a model entry',
           invalidWildcard: 'Wildcard * is only allowed at the end of an entry',

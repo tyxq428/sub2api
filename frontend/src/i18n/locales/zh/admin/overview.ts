@@ -1090,6 +1090,12 @@ export default {
         customPlaceholder: '自定义条目，如 claude-* 或 gpt-5.5-codex',
         addCustom: '添加',
         emptySelectionError: '模型白名单已开启，请至少选择或添加一个模型条目',
+        mappingTitle: '模型映射',
+        mappingHint: '将客户端请求模型映射到实际模型。分组映射在账号映射之前执行；左边是请求模型，右边是进入账号调度与上游转发的实际模型。请求模型支持末尾 * 通配，目标模型不能包含通配符。',
+        mappingEmpty: '暂无分组模型映射，点击下方按钮添加',
+        mappingSource: '请求模型，如 gpt-6-sol',
+        mappingTarget: '实际模型，如 gpt-5.6-sol',
+        addMapping: '添加模型映射',
         errors: {
           empty: '请输入模型条目',
           invalidWildcard: '通配符 * 只能出现在条目末尾',

@@ -1,6 +1,7 @@
 export interface ModelAllowlistConfig {
   enabled: boolean
   models: string[]
+  model_mapping?: Record<string, string>
 }
 
 export interface ModelAllowlistItem {
@@ -8,10 +9,16 @@ export interface ModelAllowlistItem {
   selected: boolean
 }
 
+export interface GroupModelMappingEntry {
+  from: string
+  to: string
+}
+
 export interface ModelAllowlistState {
   enabled: boolean
   savedModels: string[]
   items: ModelAllowlistItem[]
+  modelMappings: GroupModelMappingEntry[]
 }
 
 // 自定义条目校验错误码，由视图映射为 i18n 提示。
@@ -19,11 +26,17 @@ export type ModelAllowlistAddError = 'empty' | 'invalid_wildcard' | 'duplicate'
 
 export const createModelAllowlistState = (
   config?: Partial<ModelAllowlistConfig> | null,
-): ModelAllowlistState => ({
-  enabled: config?.enabled ?? false,
-  savedModels: normalizeModels(config?.models ?? []),
-  items: [],
-})
+): ModelAllowlistState => {
+  const modelMappings = Object.entries(config?.model_mapping ?? {})
+    .filter(([from, to]) => from.trim() && to.trim())
+    .map(([from, to]) => ({ from: from.trim(), to: to.trim() }))
+  return {
+    enabled: config?.enabled ?? false,
+    savedModels: normalizeModels(config?.models ?? []),
+    items: [],
+    modelMappings,
+  }
+}
 
 export const hydrateModelAllowlistState = (
   config: Partial<ModelAllowlistConfig> | null | undefined,
@@ -130,12 +143,22 @@ export const addCustomModelAllowlistItem = (
 
 export const buildModelAllowlistConfig = (
   state: ModelAllowlistState,
-): ModelAllowlistConfig => ({
-  enabled: state.enabled,
-  models: state.items.length > 0
-    ? state.items.filter(item => item.selected).map(item => item.id)
-    : [...state.savedModels],
-})
+): ModelAllowlistConfig => {
+  const modelMapping: Record<string, string> = {}
+  for (const entry of state.modelMappings) {
+    const from = entry.from.trim()
+    const to = entry.to.trim()
+    if (!from || !to) continue
+    modelMapping[from] = to
+  }
+  return {
+    enabled: state.enabled,
+    models: state.items.length > 0
+      ? state.items.filter(item => item.selected).map(item => item.id)
+      : [...state.savedModels],
+    ...(Object.keys(modelMapping).length > 0 ? { model_mapping: modelMapping } : {}),
+  }
+}
 
 export const selectedModelAllowlistCount = (state: ModelAllowlistState): number =>
   state.items.filter(item => item.selected).length

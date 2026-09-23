@@ -73,6 +73,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	// 2. Resolve model mapping (same as ForwardAsChatCompletions)
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	stageOpenAIResponseModelRestorePlan(c, originalModel, upstreamModel)
 	SetOpsUpstreamModel(c, upstreamModel)
 	grokCacheIdentity := ""
 	if account.Platform == PlatformGrok {
@@ -288,6 +289,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	responseModelFrom, responseModelTo, needModelReplace := resolveOpenAIResponseModelRestorePlan(c, upstreamModel, originalModel)
 	requestID := resp.Header.Get("x-request-id")
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
 	scanner := s.newUpstreamSSEScanner(resp.Body)
@@ -352,6 +354,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		}
 		line = applyOllamaCloudRawChatCompletionsSSELine(account, line)
 		line = stripEmptyChatToolCallIdentityFromSSELine(line)
+		if needModelReplace && responseModelFrom != "" && strings.Contains(line, responseModelFrom) {
+			line = s.replaceModelInSSELine(line, responseModelFrom, responseModelTo)
+		}
 
 		writeLine(line)
 		if line == "" {
@@ -523,6 +528,9 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		return nil, newGrokMissingUsageFailoverError(c, account, upstreamRequestID)
 	}
 	respBody = applyOllamaCloudRawChatCompletionsResponse(account, respBody)
+	if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, upstreamModel, originalModel); ok {
+		respBody = s.replaceModelInResponseBody(respBody, responseModelFrom, responseModelTo)
+	}
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)

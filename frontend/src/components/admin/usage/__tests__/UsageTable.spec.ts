@@ -360,6 +360,35 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('claude-sonnet-4-20250514')
   })
 
+  it('hides configured model mapping details from the model cell', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{
+          request_id: 'req-admin-manual-model-map',
+          model: 'gpt-6-sol',
+          upstream_model: 'gpt-5.6-sol',
+          model_mapping_chain: 'gpt-6-sol→gpt-5.6-sol',
+          upstream_model_mismatch: false,
+        }],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    const text = wrapper.text()
+    expect(text).toContain('gpt-6-sol')
+    expect(text).not.toContain('gpt-5.6-sol')
+    expect(text).not.toContain('↳')
+  })
+
   it('shows requested and forwarded reasoning effort separately when they differ', () => {
     const wrapper = mount(UsageTable, {
       props: {
@@ -477,7 +506,6 @@ describe('admin UsageTable tooltip', () => {
 
 		const text = wrapper.text()
 		expect(text).toContain('gpt-5.6-sol')
-		expect(text).toContain('gpt-5.5')
 		expect(text).toContain(responseModel)
 		expect(text).toContain(expectedBadge)
 	})

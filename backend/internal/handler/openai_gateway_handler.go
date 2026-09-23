@@ -563,8 +563,14 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
 	forwardModel := openAIChannelForwardModel(channelMapping, reqModel)
+	requestCtx := c.Request.Context()
+	if channelMapping.Mapped &&
+		strings.TrimSpace(channelMapping.MappedModel) != "" &&
+		strings.TrimSpace(channelMapping.MappedModel) != strings.TrimSpace(reqModel) {
+		requestCtx = service.WithOpenAIManualResponseModelAlias(requestCtx, reqModel, channelMapping.MappedModel)
+	}
 	c.Request = c.Request.WithContext(service.WithOpenAIForwardModel(
-		c.Request.Context(),
+		requestCtx,
 		forwardModel,
 		legacyCompact,
 	))

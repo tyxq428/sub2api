@@ -149,6 +149,13 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			attemptImageIntentInvalidated = true
 		}
 	}
+	initialUpstreamModel := upstreamPassthroughModel
+	if strings.TrimSpace(initialUpstreamModel) == "" {
+		initialUpstreamModel = reqModel
+	}
+	// Freeze the pre-fallback routed model. If a later upstream retry switches
+	// to another model, that real fallback remains visible downstream.
+	stageOpenAIResponseModelRestorePlan(c, reqModel, initialUpstreamModel)
 
 	if account != nil && account.UsesOpenAICodexProtocol() {
 		if rejectReason := detectOpenAIPassthroughInstructionsRejectReason(reqModel, body); rejectReason != "" {
@@ -1950,7 +1957,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		if clientDisconnected || !writePendingLines() {
 			return
 		}
-		if _, err := fmt.Fprint(w, buildOpenAIResponseFailedSSE(responseID, originalModel, bareErrorPayload, failedMessage)); err != nil {
+		if _, err := fmt.Fprint(w, buildOpenAIResponseFailedSSE(responseID, openAIClientFacingResponseModel(c, originalModel), bareErrorPayload, failedMessage)); err != nil {
 			clientDisconnected = true
 			return
 		}
@@ -1970,7 +1977,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	defer putSSEScannerBuf64K(scanBuf)
 	documentScanner := newOpenAISSEJSONDocumentScanner(scanner)
 
-	needModelReplace := strings.TrimSpace(originalModel) != "" && strings.TrimSpace(mappedModel) != "" && strings.TrimSpace(originalModel) != strings.TrimSpace(mappedModel)
+	responseModelFrom, responseModelTo, needModelReplace := resolveOpenAIResponseModelRestorePlan(c, mappedModel, originalModel)
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
 		return &openaiStreamingResultPassthrough{
 			usage:            usage,
@@ -1995,8 +2002,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			trimmedData := strings.TrimSpace(data)
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
 			observer.ObserveOpenAI(dataBytes, rawEventType)
-			if needModelReplace && strings.Contains(data, mappedModel) {
-				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
+			if needModelReplace && strings.Contains(data, responseModelFrom) {
+				line = s.replaceModelInSSELine(line, responseModelFrom, responseModelTo)
 				if replacedData, replaced := extractOpenAISSEDataLine(line); replaced {
 					dataBytes = []byte(replacedData)
 					trimmedData = strings.TrimSpace(replacedData)
@@ -2310,8 +2317,8 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if contentType == "" {
 		contentType = "application/json"
 	}
-	if originalModel != "" && mappedModel != "" && originalModel != mappedModel {
-		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+	if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, mappedModel, originalModel); ok {
+		body = s.replaceModelInResponseBody(body, responseModelFrom, responseModelTo)
 	}
 	body, err = restoreOpenAIResponsesNamespacePayload(c, body)
 	if err != nil {
@@ -2372,8 +2379,8 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
-		if originalModel != "" && mappedModel != "" && originalModel != mappedModel {
-			body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+		if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, mappedModel, originalModel); ok {
+			body = s.replaceModelInResponseBody(body, responseModelFrom, responseModelTo)
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
@@ -2384,8 +2391,8 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		restoredBody = restoreCodexToolNamesFromContext(c, restoredBody)
 		body = restoredBody
 	} else {
-		if originalModel != "" && mappedModel != "" && originalModel != mappedModel {
-			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel)
+		if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, mappedModel, originalModel); ok {
+			bodyText = s.replaceModelInSSEBody(bodyText, responseModelFrom, responseModelTo)
 		}
 		body = []byte(bodyText)
 	}

@@ -54,14 +54,16 @@
 
         <template #cell-model="{ row }">
           <div class="space-y-0.5 text-xs">
-            <div v-if="row.model_mapping_chain && row.model_mapping_chain.includes('→')" class="space-y-0.5">
-              <div v-for="(step, i) in row.model_mapping_chain.split('→')" :key="i"
-                   class="break-all"
-                   :class="i === 0 ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'"
-                   :style="i > 0 ? `padding-left: ${i * 0.75}rem` : ''">
-                <span v-if="i > 0" class="mr-0.5">↳</span>{{ step }}
-              </div>
-            </div>
+            <!-- Configured/manual routing remains available in model_mapping_chain
+                 for audit/export, but is an implementation detail in the table.
+                 Genuine upstream response-model changes are rendered separately
+                 below via upstream_model_mismatch. -->
+            <span
+              v-if="row.model_mapping_chain && row.model_mapping_chain.includes('→')"
+              class="break-all font-medium text-gray-900 dark:text-white"
+            >
+              {{ row.model }}
+            </span>
             <div v-else-if="row.upstream_model && row.upstream_model !== row.model" class="space-y-0.5">
               <div class="break-all font-medium text-gray-900 dark:text-white">
                 {{ row.model }}

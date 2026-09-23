@@ -216,11 +216,19 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result.BillingModel != "" {
 		billingModel = strings.TrimSpace(result.BillingModel)
 	}
-	if input.BillingModelSource == BillingModelSourceChannelMapped && input.ChannelMappedModel != "" && input.ChannelMappedModel != input.OriginalModel {
-		billingModel = input.ChannelMappedModel
-	}
-	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
-		billingModel = input.OriginalModel
+	requestedBillingModel, configuredMapped := requestedBillingModelForConfiguredMapping(account, input.ChannelUsageFields)
+	if configuredMapped {
+		// Operator-configured routing is an implementation detail. Bill the
+		// public/requested model while retaining real routed/upstream fields for
+		// audit and diagnostics.
+		billingModel = requestedBillingModel
+	} else {
+		if input.BillingModelSource == BillingModelSourceChannelMapped && input.ChannelMappedModel != "" && input.ChannelMappedModel != input.OriginalModel {
+			billingModel = input.ChannelMappedModel
+		}
+		if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
+			billingModel = input.OriginalModel
+		}
 	}
 	billingModels := usageBillingModelCandidates(
 		billingModel,
@@ -270,8 +278,15 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// + responseModelBillingAdoptable。任一条件不满足都静默回落基线，即开启本模式前的
 	// 既有行为。响应模型与基线同名时直接跳过：重算必然同价，白跑一次定价解析。
 	baselineBillingModel := firstUsageBillingModel(billingModels)
+	responseBillingModelSource := input.BillingModelSource
+	if configuredMapped {
+		// A configured mapping remains billed as the public/requested model even
+		// if the provider declares a different response model. The declaration
+		// is still persisted below for mismatch/audit visibility.
+		responseBillingModelSource = ""
+	}
 	if responseModel := responseModelBillingDeclaration(
-		input.BillingModelSource,
+		responseBillingModelSource,
 		result.UpstreamResponseModel,
 		result.UpstreamResponseModelConflict,
 		result.ImageCount > 0 || result.VideoCount > 0 || result.WebSearchCalls > 0 ||

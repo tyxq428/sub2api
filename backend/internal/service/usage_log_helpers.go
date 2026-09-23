@@ -36,6 +36,38 @@ func forwardResultBillingModel(requestedModel, upstreamModel string) string {
 	return strings.TrimSpace(upstreamModel)
 }
 
+// requestedBillingModelForConfiguredMapping returns the public/original model
+// when the effective upstream route changed because of an operator-configured
+// group/channel/account model mapping.
+//
+// It deliberately ignores UpstreamResponseModel: a provider-side response
+// model change is audit data, not evidence that an admin mapping was applied.
+func requestedBillingModelForConfiguredMapping(account *Account, fields ChannelUsageFields) (string, bool) {
+	requested := strings.TrimSpace(fields.OriginalModel)
+	if requested == "" {
+		return "", false
+	}
+
+	routed := strings.TrimSpace(fields.ChannelMappedModel)
+	if routed == "" {
+		routed = requested
+	}
+	if !strings.EqualFold(routed, requested) {
+		return requested, true
+	}
+
+	// OpenAI passthrough explicitly ignores stale account model_mapping.
+	if account == nil || account.IsOpenAIPassthroughEnabled() {
+		return "", false
+	}
+	mapped, matched := account.ResolveMappedModel(routed)
+	mapped = strings.TrimSpace(mapped)
+	if matched && mapped != "" && !strings.EqualFold(mapped, routed) {
+		return requested, true
+	}
+	return "", false
+}
+
 func optionalInt64Ptr(v int64) *int64 {
 	if v == 0 {
 		return nil

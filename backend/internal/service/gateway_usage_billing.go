@@ -759,11 +759,16 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 确定计费模型
 	concreteBillingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
 	billingModel := concreteBillingModel
-	if input.BillingModelSource == BillingModelSourceChannelMapped && input.ChannelMappedModel != "" {
-		billingModel = input.ChannelMappedModel
-	}
-	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
-		billingModel = input.OriginalModel
+	requestedBillingModel, configuredMapped := requestedBillingModelForConfiguredMapping(account, input.ChannelUsageFields)
+	if configuredMapped {
+		billingModel = requestedBillingModel
+	} else {
+		if input.BillingModelSource == BillingModelSourceChannelMapped && input.ChannelMappedModel != "" {
+			billingModel = input.ChannelMappedModel
+		}
+		if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
+			billingModel = input.OriginalModel
+		}
 	}
 	// composite 分组的公开别名（如 all/claude）会经 OriginalModel/ChannelMappedModel
 	// 进入上面的来源覆盖：任意别名查无价会静默落 $0，含家族词的别名则被价格表的
@@ -788,8 +793,12 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 采纳条件见 responseModelBillingDeclaration + hasIdentifiedResponseModelPricing
 	// + responseModelBillingAdoptable。任一条件不满足都静默回落基线，即开启本模式前的
 	// 既有行为。响应模型与基线同名时直接跳过：重算必然同价，白跑一次定价解析。
+	responseBillingModelSource := input.BillingModelSource
+	if configuredMapped {
+		responseBillingModelSource = ""
+	}
 	if responseModel := responseModelBillingDeclaration(
-		input.BillingModelSource,
+		responseBillingModelSource,
 		result.UpstreamResponseModel,
 		result.UpstreamResponseModelConflict,
 		result.ImageCount > 0 || result.AudioUsage != nil || result.SearchCount > 0,

@@ -1804,9 +1804,10 @@ func TestOpenAIGatewayServiceRecordUsage_ChannelMappedOverridesBillingModelWhenM
 	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
 	usage := OpenAIUsage{InputTokens: 20, OutputTokens: 10}
 
-	// When channel DID map the model (ChannelMappedModel != OriginalModel),
-	// billing should use the channel-mapped model, honoring admin intent.
-	expectedCost, err := svc.billingService.CalculateCost("gpt-5.1", UsageTokens{
+	// The requested alias "glm" is not priceable in this fallback catalog.
+	// Requested-model billing therefore falls through to the existing concrete
+	// upstream billing-model fallback instead of recording a zero-cost row.
+	expectedCost, err := svc.billingService.CalculateCost("gpt-5.1-codex", UsageTokens{
 		InputTokens:  20,
 		OutputTokens: 10,
 	}, 1.1)
@@ -1836,6 +1837,119 @@ func TestOpenAIGatewayServiceRecordUsage_ChannelMappedOverridesBillingModelWhenM
 	require.NotNil(t, usageRepo.lastLog)
 	require.Equal(t, expectedCost.ActualCost, usageRepo.lastLog.ActualCost)
 	require.True(t, usageRepo.lastLog.ActualCost > 0, "cost must not be zero")
+}
+
+func TestOpenAIGatewayServiceRecordUsage_ConfiguredMappingBillsOriginalRequestedModel(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	subRepo := &openAIRecordUsageSubRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+	usage := OpenAIUsage{InputTokens: 20, OutputTokens: 10}
+	tokens := UsageTokens{InputTokens: 20, OutputTokens: 10}
+
+	requestedCost, err := svc.billingService.CalculateCost("gpt-5.4", tokens, 1.1)
+	require.NoError(t, err)
+	mappedCost, err := svc.billingService.CalculateCost("gpt-5.5", tokens, 1.1)
+	require.NoError(t, err)
+	require.NotEqual(t, requestedCost.ActualCost, mappedCost.ActualCost, "fixture must distinguish requested and mapped pricing")
+
+	err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:             "resp_manual_mapping_requested_billing",
+			Model:                 "gpt-5.5",
+			BillingModel:          "gpt-5.5",
+			UpstreamModel:         "gpt-5.5",
+			UpstreamResponseModel: "gpt-5.5",
+			Usage:                 usage,
+			Duration:              time.Second,
+		},
+		APIKey:  &APIKey{ID: 10},
+		User:    &User{ID: 20},
+		Account: &Account{ID: 30},
+		ChannelUsageFields: ChannelUsageFields{
+			ChannelID:          1,
+			OriginalModel:      "gpt-5.4",
+			ChannelMappedModel: "gpt-5.5",
+			BillingModelSource: BillingModelSourceChannelMapped,
+			ModelMappingChain:  "gpt-5.4→gpt-5.5",
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, requestedCost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.NotEqual(t, mappedCost.ActualCost, usageRepo.lastLog.ActualCost)
+	require.Equal(t, "gpt-5.4", usageRepo.lastLog.RequestedModel)
+	require.NotNil(t, usageRepo.lastLog.UpstreamModel)
+	require.Equal(t, "gpt-5.5", *usageRepo.lastLog.UpstreamModel)
+	require.NotNil(t, usageRepo.lastLog.UpstreamResponseModel)
+	require.Equal(t, "gpt-5.5", *usageRepo.lastLog.UpstreamResponseModel)
+	require.NotNil(t, usageRepo.lastLog.ModelMappingChain)
+	require.Equal(t, "gpt-5.4→gpt-5.5", *usageRepo.lastLog.ModelMappingChain)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_ConfiguredMappingKeepsRequestedBillingWhenResponseModelDiffers(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	subRepo := &openAIRecordUsageSubRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+	usage := OpenAIUsage{InputTokens: 20, OutputTokens: 10}
+	tokens := UsageTokens{InputTokens: 20, OutputTokens: 10}
+
+	requestedCost, err := svc.billingService.CalculateCost("gpt-5.4", tokens, 1.1)
+	require.NoError(t, err)
+	responseCost, err := svc.billingService.CalculateCost("gpt-5.5", tokens, 1.1)
+	require.NoError(t, err)
+	require.NotEqual(t, requestedCost.ActualCost, responseCost.ActualCost)
+
+	err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:             "resp_manual_mapping_response_model_audit_only",
+			Model:                 "gpt-5.6-sol",
+			BillingModel:          "gpt-5.6-sol",
+			UpstreamModel:         "gpt-5.6-sol",
+			UpstreamResponseModel: "gpt-5.5",
+			Usage:                 usage,
+			Duration:              time.Second,
+		},
+		APIKey:  &APIKey{ID: 10},
+		User:    &User{ID: 20},
+		Account: &Account{ID: 30},
+		ChannelUsageFields: ChannelUsageFields{
+			ChannelID:          1,
+			OriginalModel:      "gpt-5.4",
+			ChannelMappedModel: "gpt-5.6-sol",
+			BillingModelSource: BillingModelSourceResponse,
+			ModelMappingChain:  "gpt-5.4→gpt-5.6-sol",
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, requestedCost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.NotEqual(t, responseCost.ActualCost, usageRepo.lastLog.ActualCost)
+	require.Equal(t, "gpt-5.4", usageRepo.lastLog.RequestedModel)
+	require.NotNil(t, usageRepo.lastLog.UpstreamModel)
+	require.Equal(t, "gpt-5.6-sol", *usageRepo.lastLog.UpstreamModel)
+	require.NotNil(t, usageRepo.lastLog.UpstreamResponseModel)
+	require.Equal(t, "gpt-5.5", *usageRepo.lastLog.UpstreamResponseModel)
+	require.NotNil(t, usageRepo.lastLog.UpstreamModelMismatch)
+	require.True(t, *usageRepo.lastLog.UpstreamModelMismatch)
+}
+
+func TestRequestedBillingModelForConfiguredMapping_AccountMapping(t *testing.T) {
+	account := &Account{
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"gpt-5.4": "gpt-5.5"},
+		},
+	}
+	model, ok := requestedBillingModelForConfiguredMapping(account, ChannelUsageFields{
+		OriginalModel:      "gpt-5.4",
+		ChannelMappedModel: "gpt-5.4",
+		ModelMappingChain:  "gpt-5.4→gpt-5.5",
+	})
+	require.True(t, ok)
+	require.Equal(t, "gpt-5.4", model)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_ResponsesMappedBillingModelHonorsBillingModelSource(t *testing.T) {

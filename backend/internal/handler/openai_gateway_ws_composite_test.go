@@ -130,11 +130,10 @@ func TestOpenAIResponsesWebSocket_CompositeChannelBilling(t *testing.T) {
 				require.Equal(t, "gpt-5.4", gjson.GetBytes(got.upstreamPayloads[i], "model").String())
 				require.Equal(t, "gpt-5.6-sol", log.RequestedModel)
 				require.Equal(t, "gpt-5.6-sol", log.Model)
-				if source == service.BillingModelSourceRequested {
-					require.InDelta(t, 40e-6, log.TotalCost, 1e-12)
-				} else {
-					require.InDelta(t, 20e-6, log.TotalCost, 1e-12)
-				}
+				// Operator-configured routing is an implementation detail. The
+				// public/requested model remains the billing identity regardless of
+				// the channel's legacy billing-source selector.
+				require.InDelta(t, 40e-6, log.TotalCost, 1e-12)
 			}
 		})
 	}

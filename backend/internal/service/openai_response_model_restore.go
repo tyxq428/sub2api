@@ -114,7 +114,7 @@ func openAIClientFacingResponseModel(c *gin.Context, fallback string) string {
 func openAIClientFacingObservedModel(c *gin.Context, observedModel, fallbackFromModel, fallbackToModel string) string {
 	observedModel = strings.TrimSpace(observedModel)
 	fromModel, toModel, ok := resolveOpenAIResponseModelRestorePlan(c, fallbackFromModel, fallbackToModel)
-	if ok && observedModel != "" && observedModel == fromModel {
+	if ok && observedModel != "" && strings.EqualFold(observedModel, fromModel) {
 		return toModel
 	}
 	if observedModel != "" {

@@ -669,7 +669,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			// Replace model in response if needed.
 			// Fast path: most events do not contain model field values.
-			if needModelReplace && responseModelFrom != "" && strings.Contains(line, responseModelFrom) {
+			if needModelReplace && strings.Contains(line, "model") {
 				line = s.replaceModelInSSELine(line, responseModelFrom, responseModelTo)
 			}
 			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
@@ -1090,7 +1090,9 @@ func effectiveOpenAISSEEventType(payload []byte, eventType string) string {
 }
 
 func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel string) string {
-	if fromModel == "" || toModel == "" || fromModel == toModel {
+	fromModel = strings.TrimSpace(fromModel)
+	toModel = strings.TrimSpace(toModel)
+	if fromModel == "" || toModel == "" || strings.EqualFold(fromModel, toModel) {
 		return line
 	}
 	data, ok := extractOpenAISSEDataLine(line)
@@ -1098,9 +1100,12 @@ func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel st
 		return line
 	}
 	updated := data
-	// Only protocol model fields are rewritten; text and tool payloads are untouched.
+	// Only protocol model fields that still identify the frozen
+	// operator-routed model are rewritten. A genuinely different provider model
+	// is audit-visible behavior and must remain visible to the client.
 	for _, path := range []string{"model", "response.model"} {
-		if m := gjson.Get(updated, path); m.Type == gjson.String {
+		if m := gjson.Get(updated, path); m.Type == gjson.String &&
+			(strings.TrimSpace(m.Str) == "" || strings.EqualFold(strings.TrimSpace(m.Str), fromModel)) {
 			var err error
 			updated, err = sjson.Set(updated, path, toModel)
 			if err != nil {

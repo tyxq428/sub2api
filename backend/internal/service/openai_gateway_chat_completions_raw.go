@@ -369,7 +369,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		}
 		line = applyOllamaCloudRawChatCompletionsSSELine(account, line)
 		line = stripEmptyChatToolCallIdentityFromSSELine(line)
-		if needModelReplace && responseModelFrom != "" && strings.Contains(line, responseModelFrom) {
+		if needModelReplace && strings.Contains(line, "model") {
 			line = s.replaceModelInSSELine(line, responseModelFrom, responseModelTo)
 		}
 

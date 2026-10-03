@@ -86,6 +86,18 @@ class ReleaseMatrixTest(unittest.TestCase):
                 else:
                     self.assertEqual(data['checksum']['extra_files'], data['release']['extra_files'])
 
+    def test_custom_publication_is_visible_as_stable_latest_release(self):
+        with patch.dict(os.environ, {'RELEASE_VERSION': '0.2.13-custom.1'}):
+            release.generate_config(argparse.Namespace(mode='publish', simple=False, output='publisher.yaml'))
+        data = yaml.safe_load(Path('publisher.yaml').read_text())
+        self.assertFalse(data['release']['prerelease'])
+
+    def test_non_custom_publication_keeps_upstream_prerelease_policy(self):
+        with patch.dict(os.environ, {'RELEASE_VERSION': '0.2.14-rc.1'}):
+            release.generate_config(argparse.Namespace(mode='publish', simple=False, output='publisher.yaml'))
+        data = yaml.safe_load(Path('publisher.yaml').read_text())
+        self.assertEqual(data['release']['prerelease'], 'auto')
+
     def test_collect_and_verify_hash_and_source_binding(self):
         args = self.fixture_artifacts()
         release.verify(args)

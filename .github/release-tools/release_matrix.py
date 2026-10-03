@@ -95,6 +95,13 @@ def generate_config(args):
         data['before'] = {'hooks': []}
         data['builds'] = [{'id': 'sub2api', 'skip': True}]
         data['archives'] = []
+        # Operator custom tags use a semver prerelease suffix for revision
+        # ordering, but they are the stable update channel for this deployment.
+        # Mark only these tags as stable so GitHub's /releases/latest endpoint
+        # can surface them to the in-app updater. Normal rc/beta tags retain
+        # GoReleaser's upstream prerelease=auto behavior.
+        if '-custom.' in os.environ.get('RELEASE_VERSION', ''):
+            data['release']['prerelease'] = False
         extra = [{'glob': 'release-input/sub2api_*.tar.gz'}, {'glob': 'release-input/sub2api_*.zip'}]
         if args.simple:
             data['checksum'] = {'disable': True}

@@ -169,6 +169,29 @@ func TestUpdateServiceListRollbackVersionsEmptyWhenNoneOlder(t *testing.T) {
 	require.Empty(t, versions)
 }
 
+func TestUpdateServiceCustomBuildRollbackRejectsOfficialTags(t *testing.T) {
+	releases := []*GitHubRelease{
+		{TagName: "v0.2.13"}, // non-custom: excluded
+		{TagName: "v0.2.12"}, // non-custom: excluded
+		{TagName: "v0.2.12-custom.2"},
+		{TagName: "v0.2.12-custom.1"},
+		{TagName: "v0.2.11-custom.3"},
+		{TagName: "v0.2.10"}, // non-custom: excluded
+	}
+	svc := newRollbackTestService("0.2.13-custom.1", releases)
+
+	versions, err := svc.ListRollbackVersions(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, versions, 3)
+	require.Equal(t, "0.2.12-custom.2", versions[0].Version)
+	require.Equal(t, "0.2.12-custom.1", versions[1].Version)
+	require.Equal(t, "0.2.11-custom.3", versions[2].Version)
+
+	err = svc.RollbackToVersion(context.Background(), "0.2.12")
+	require.ErrorIs(t, err, ErrRollbackVersionNotAllowed)
+}
+
 func TestUpdateServiceListRollbackVersionsPropagatesFetchError(t *testing.T) {
 	svc := NewUpdateService(
 		&updateServiceCacheStub{},

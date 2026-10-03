@@ -379,10 +379,16 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 		return nil, err
 	}
 
+	// Once a custom runtime is installed, every binary replacement path must
+	// remain on the custom release channel. Otherwise the rollback UI could
+	// install a stable upstream/non-custom release and silently remove the
+	// operator-required behavior that the normal update path protects.
+	requireCustomRelease := isTrustedCustomReleaseTag(s.currentVersion)
 	seen := make(map[string]bool, len(releases))
 	candidates := make([]*GitHubRelease, 0, maxRollbackVersions)
 	for _, r := range releases {
-		if r == nil || r.Draft || r.Prerelease {
+		if r == nil || r.Draft || r.Prerelease ||
+			(requireCustomRelease && !isTrustedCustomReleaseTag(r.TagName)) {
 			continue
 		}
 		v := strings.TrimPrefix(r.TagName, "v")

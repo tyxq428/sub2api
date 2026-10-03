@@ -1,0 +1,31 @@
+name: Create v0.2.13-custom.3 tag
+
+on:
+  push:
+    branches:
+      - ops/tag-v0.2.13-custom.3-20261003
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create exact release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v0.2.13-custom.3"
+          target="2629e9c24b86d54681f432fcce9811afe09d3f4a"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "$tag already exists"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$target" -m "Sub2API 0.2.13 custom.3"
+          git push origin "refs/tags/$tag"

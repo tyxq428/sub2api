@@ -1,0 +1,72 @@
+name: Publish v0.2.13-custom.3 production release
+
+on:
+  push:
+    branches:
+      - ops/publish-v0.2.13-custom.3-linux
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified linux amd64 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: "37128106262"
+        run: |
+          set -euo pipefail
+          mkdir -p release-input
+          gh run download "$SOURCE_RUN"             --repo "$GITHUB_REPOSITORY"             -n release-binary-linux-amd64             -D release-input
+          find release-input -maxdepth 2 -type f -print
+
+      - name: Verify provenance and executable identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_sha="2629e9c24b86d54681f432fcce9811afe09d3f4a"
+          expected_version="0.2.13-custom.3"
+          archive="release-input/sub2api_${expected_version}_linux_amd64.tar.gz"
+          manifest="release-input/manifest-linux-amd64.json"
+          test -f "$archive"
+          test -f "$manifest"
+          test "$(jq -r .sha "$manifest")" = "$expected_sha"
+          test "$(jq -r .version "$manifest")" = "$expected_version"
+          test "$(jq -r .target.goos "$manifest")" = "linux"
+          test "$(jq -r .target.goarch "$manifest")" = "amd64"
+          test "$(jq -r .sha256 "$manifest")" = "$(sha256sum "$archive" | awk '{print $1}')"
+          mkdir -p verify-bin
+          tar -xzf "$archive" -C verify-bin
+          test -x verify-bin/sub2api
+          version_out="$(verify-bin/sub2api --version 2>&1)"
+          echo "$version_out"
+          grep -F "Sub2API ${expected_version}" <<<"$version_out"
+          grep -F "commit: ${expected_sha}" <<<"$version_out"
+          sha256sum "$archive" | sed 's#  release-input/#  #' > release-input/checksums.txt
+          cat release-input/checksums.txt
+
+      - name: Stop obsolete full-release attempts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run cancel 37128106262 --repo "$GITHUB_REPOSITORY" || true
+          gh run cancel 37128126278 --repo "$GITHUB_REPOSITORY" || true
+
+      - name: Publish stable custom release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v0.2.13-custom.3"
+          archive="release-input/sub2api_0.2.13-custom.3_linux_amd64.tar.gz"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; verifying required assets."
+          else
+            gh release create "$tag"               "$archive"               release-input/checksums.txt               --repo "$GITHUB_REPOSITORY"               --verify-tag               --latest               --title "Sub2API 0.2.13-custom.3"               --notes "Production custom release for RackNerd. Source commit: 2629e9c24b86d54681f432fcce9811afe09d3f4a. Includes the verified Linux amd64 binary required by the in-app custom updater."
+          fi
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease,isLatest,url

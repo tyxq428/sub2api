@@ -1,0 +1,48 @@
+name: Recover v0.2.13-custom.3 full release
+
+on:
+  push:
+    branches:
+      - ops/tag-v0.2.13-custom.3-20261003
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recover stuck full release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: "37127543658"
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          state="$(gh run view "$RUN_ID" --repo "$repo" --json status,conclusion)"
+          status="$(jq -r .status <<<"$state")"
+          conclusion="$(jq -r '.conclusion // ""' <<<"$state")"
+          if [[ "$status" == "completed" && "$conclusion" == "success" ]]; then
+            echo "Original release already succeeded; nothing to recover."
+            exit 0
+          fi
+          if [[ "$status" != "completed" ]]; then
+            gh run cancel "$RUN_ID" --repo "$repo" || true
+            for _ in $(seq 1 30); do
+              state="$(gh run view "$RUN_ID" --repo "$repo" --json status,conclusion)"
+              status="$(jq -r .status <<<"$state")"
+              conclusion="$(jq -r '.conclusion // ""' <<<"$state")"
+              [[ "$status" == "completed" ]] && break
+              sleep 2
+            done
+          fi
+          state="$(gh run view "$RUN_ID" --repo "$repo" --json status,conclusion)"
+          status="$(jq -r .status <<<"$state")"
+          conclusion="$(jq -r '.conclusion // ""' <<<"$state")"
+          if [[ "$status" == "completed" && "$conclusion" == "success" ]]; then
+            echo "Original release completed successfully during recovery."
+            exit 0
+          fi
+          gh workflow run release.yml             --repo "$repo"             --ref "v0.2.13-custom.3"             -f tag="v0.2.13-custom.3"             -f simple_release=false             -f dry_run=false

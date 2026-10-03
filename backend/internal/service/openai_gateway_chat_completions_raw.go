@@ -370,10 +370,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		line = applyOllamaCloudRawChatCompletionsSSELine(account, line)
 		line = stripEmptyChatToolCallIdentityFromSSELine(line)
 		if needModelReplace && strings.Contains(line, "model") {
-			line = s.replaceModelInSSELine(line, responseModelFrom, responseModelTo)
+			line = s.replaceModelInSSELineForRestore(c, line, responseModelFrom, responseModelTo)
 		}
-
-		line = s.replaceModelInSSELine(line, upstreamModel, originalModel)
 		writeLine(line)
 		if line == "" {
 			if !clientDisconnected && clientOutputStarted {
@@ -545,7 +543,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	}
 	respBody = applyOllamaCloudRawChatCompletionsResponse(account, respBody)
 	if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, upstreamModel, originalModel); ok {
-		respBody = s.replaceModelInResponseBody(respBody, responseModelFrom, responseModelTo)
+		respBody = s.replaceModelInResponseBodyForRestore(c, respBody, responseModelFrom, responseModelTo)
 	}
 
 	if s.responseHeaderFilter != nil {

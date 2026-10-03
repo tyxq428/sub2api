@@ -670,7 +670,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			// Replace model in response if needed.
 			// Fast path: most events do not contain model field values.
 			if needModelReplace && strings.Contains(line, "model") {
-				line = s.replaceModelInSSELine(line, responseModelFrom, responseModelTo)
+				line = s.replaceModelInSSELineForRestore(c, line, responseModelFrom, responseModelTo)
 			}
 			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
 			startsVisibleOutput := openAIStreamDataStartsVisibleOutput(data, eventType)
@@ -1100,17 +1100,51 @@ func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel st
 		return line
 	}
 	updated := data
-	// Only protocol model fields that still identify the frozen
-	// operator-routed model are rewritten. A genuinely different provider model
-	// is audit-visible behavior and must remain visible to the client.
+	// Only protocol model fields are rewritten; text/tool payloads are untouched.
+	// Provider-specific aliases are intentionally restored for ordinary
+	// account/channel mappings. Manual group aliases use the strict wrapper.
 	for _, path := range []string{"model", "response.model"} {
-		if m := gjson.Get(updated, path); m.Type == gjson.String &&
-			(strings.TrimSpace(m.Str) == "" || strings.EqualFold(strings.TrimSpace(m.Str), fromModel)) {
+		if m := gjson.Get(updated, path); m.Type == gjson.String {
 			var err error
 			updated, err = sjson.Set(updated, path, toModel)
 			if err != nil {
 				return line
 			}
+		}
+	}
+	if updated == data {
+		return line
+	}
+	return "data: " + updated
+}
+
+func (s *OpenAIGatewayService) replaceModelInSSELineForRestore(c *gin.Context, line, fromModel, toModel string) string {
+	if !openAIResponseModelRestoreStrict(c) {
+		return s.replaceModelInSSELine(line, fromModel, toModel)
+	}
+	fromModel = strings.TrimSpace(fromModel)
+	toModel = strings.TrimSpace(toModel)
+	if fromModel == "" || toModel == "" || strings.EqualFold(fromModel, toModel) {
+		return line
+	}
+	data, ok := extractOpenAISSEDataLine(line)
+	if !ok || !gjson.Valid(data) {
+		return line
+	}
+	updated := data
+	for _, path := range []string{"model", "response.model"} {
+		m := gjson.Get(updated, path)
+		if m.Type != gjson.String {
+			continue
+		}
+		observed := strings.TrimSpace(m.Str)
+		if observed != "" && !strings.EqualFold(observed, fromModel) {
+			continue
+		}
+		var err error
+		updated, err = sjson.Set(updated, path, toModel)
+		if err != nil {
+			return line
 		}
 	}
 	if updated == data {
@@ -1655,7 +1689,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	// Restore only the exact model from the frozen routing plan. If the upstream
 	// itself returned a different model, keep that genuine model change visible.
 	if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, mappedModel, originalModel); ok {
-		body = s.replaceModelInResponseBody(body, responseModelFrom, responseModelTo)
+		body = s.replaceModelInResponseBodyForRestore(c, body, responseModelFrom, responseModelTo)
 	}
 	body, err = restoreGrokResponsesClientToolPayload(c, body)
 	if err != nil {
@@ -1753,7 +1787,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
 		if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, mappedModel, originalModel); ok {
-			body = s.replaceModelInResponseBody(body, responseModelFrom, responseModelTo)
+			body = s.replaceModelInResponseBodyForRestore(c, body, responseModelFrom, responseModelTo)
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
@@ -1773,7 +1807,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		body = restoredBody
 	} else {
 		if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, mappedModel, originalModel); ok {
-			bodyText = s.replaceModelInSSEBody(bodyText, responseModelFrom, responseModelTo)
+			bodyText = s.replaceModelInSSEBodyForRestore(c, bodyText, responseModelFrom, responseModelTo)
 		}
 		body = []byte(bodyText)
 	}
@@ -2393,6 +2427,17 @@ func (s *OpenAIGatewayService) replaceModelInSSEBody(body, fromModel, toModel st
 			continue
 		}
 		lines[i] = s.replaceModelInSSELine(line, fromModel, toModel)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *OpenAIGatewayService) replaceModelInSSEBodyForRestore(c *gin.Context, body, fromModel, toModel string) string {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		if _, ok := extractOpenAISSEDataLine(line); !ok {
+			continue
+		}
+		lines[i] = s.replaceModelInSSELineForRestore(c, line, fromModel, toModel)
 	}
 	return strings.Join(lines, "\n")
 }

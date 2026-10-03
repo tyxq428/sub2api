@@ -976,15 +976,16 @@ func appendOpenAIResponsesRequestPathSuffix(baseURL, suffix string) string {
 }
 
 func (s *OpenAIGatewayService) replaceModelInResponseBody(body []byte, fromModel, toModel string) []byte {
-	// Restore only the operator-routed model. A genuinely different model
-	// declared by the provider must remain visible to the client.
 	fromModel = strings.TrimSpace(fromModel)
 	toModel = strings.TrimSpace(toModel)
 	if fromModel == "" || toModel == "" || strings.EqualFold(fromModel, toModel) || !gjson.ValidBytes(body) {
 		return body
 	}
-	if m := gjson.GetBytes(body, "model"); m.Type == gjson.String &&
-		(strings.TrimSpace(m.Str) == "" || strings.EqualFold(strings.TrimSpace(m.Str), fromModel)) {
+	// Upstream providers may return a provider-specific alias that differs from
+	// the exact forwarded spelling. For ordinary account/channel mappings the
+	// public request identity remains authoritative, so any string model is
+	// restored. Manual group aliases use the strict wrapper below.
+	if m := gjson.GetBytes(body, "model"); m.Type == gjson.String {
 		newBody, err := sjson.SetBytes(body, "model", toModel)
 		if err != nil {
 			return body
@@ -992,6 +993,30 @@ func (s *OpenAIGatewayService) replaceModelInResponseBody(body []byte, fromModel
 		return newBody
 	}
 	return body
+}
+
+func (s *OpenAIGatewayService) replaceModelInResponseBodyForRestore(c *gin.Context, body []byte, fromModel, toModel string) []byte {
+	if !openAIResponseModelRestoreStrict(c) {
+		return s.replaceModelInResponseBody(body, fromModel, toModel)
+	}
+	fromModel = strings.TrimSpace(fromModel)
+	toModel = strings.TrimSpace(toModel)
+	if fromModel == "" || toModel == "" || strings.EqualFold(fromModel, toModel) || !gjson.ValidBytes(body) {
+		return body
+	}
+	m := gjson.GetBytes(body, "model")
+	if m.Type != gjson.String {
+		return body
+	}
+	observed := strings.TrimSpace(m.Str)
+	if observed != "" && !strings.EqualFold(observed, fromModel) {
+		return body
+	}
+	newBody, err := sjson.SetBytes(body, "model", toModel)
+	if err != nil {
+		return body
+	}
+	return newBody
 }
 
 func getOpenAIReasoningEffortFromReqBody(reqBody map[string]any, requestedModel string) (value string, present bool) {

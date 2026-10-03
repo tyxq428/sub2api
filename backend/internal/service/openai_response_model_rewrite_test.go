@@ -16,7 +16,7 @@ import (
 func TestMappedResponseModelPreservesOtherData(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	body := `{"model":"alias","text":"mapped alias","tool":{"model":"mapped","arguments":"{\"model\":\"alias\"}"}}`
-	want := body
+	want := `{"model":"public","text":"mapped alias","tool":{"model":"mapped","arguments":"{\"model\":\"alias\"}"}}`
 	require.Equal(t, want, string(svc.replaceModelInResponseBody([]byte(body), "mapped", "public")))
 	require.Equal(t, "data: "+want, svc.replaceModelInSSELine("data: "+body, "mapped", "public"))
 	for _, body := range []string{
@@ -48,7 +48,7 @@ func TestMappedResponseModelForwarding(t *testing.T) {
 					}
 					t.Run(name, func(t *testing.T) {
 						model := returned
-						if mapped != "public" && strings.EqualFold(returned, mapped) {
+						if mapped != "public" {
 							model = "public"
 						}
 						payload := `{"model":"` + returned + `","choices":[{"delta":{"content":"keep alias","tool_calls":[{"function":{"arguments":"{\"model\":\"alias\"}"}}]}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`

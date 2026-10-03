@@ -45,8 +45,9 @@ func openAIManualResponseModelAliasFromContext(ctx context.Context) (openAIManua
 const openAIResponseModelRestorePlanKey = "openai_response_model_restore_plan"
 
 type openAIResponseModelRestorePlan struct {
-	fromModel string
-	toModel   string
+	fromModel       string
+	toModel         string
+	strictFromModel bool
 }
 
 // resetOpenAIResponseModelRestorePlan prevents a failed account attempt from
@@ -69,16 +70,31 @@ func stageOpenAIResponseModelRestorePlan(c *gin.Context, serviceOriginalModel, i
 	}
 	fromModel := strings.TrimSpace(initialUpstreamModel)
 	toModel := strings.TrimSpace(serviceOriginalModel)
+	strictFromModel := false
 	if c.Request != nil {
 		if alias, ok := openAIManualResponseModelAliasFromContext(c.Request.Context()); ok &&
 			strings.EqualFold(strings.TrimSpace(alias.routedModel), toModel) {
 			toModel = strings.TrimSpace(alias.requestedModel)
+			strictFromModel = true
 		}
 	}
 	c.Set(openAIResponseModelRestorePlanKey, openAIResponseModelRestorePlan{
-		fromModel: fromModel,
-		toModel:   toModel,
+		fromModel:       fromModel,
+		toModel:         toModel,
+		strictFromModel: strictFromModel,
 	})
+}
+
+func openAIResponseModelRestoreStrict(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	raw, exists := c.Get(openAIResponseModelRestorePlanKey)
+	if !exists {
+		return false
+	}
+	plan, ok := raw.(openAIResponseModelRestorePlan)
+	return ok && plan.strictFromModel
 }
 
 func resolveOpenAIResponseModelRestorePlan(c *gin.Context, fallbackFromModel, fallbackToModel string) (fromModel, toModel string, ok bool) {
@@ -114,10 +130,10 @@ func openAIClientFacingResponseModel(c *gin.Context, fallback string) string {
 func openAIClientFacingObservedModel(c *gin.Context, observedModel, fallbackFromModel, fallbackToModel string) string {
 	observedModel = strings.TrimSpace(observedModel)
 	fromModel, toModel, ok := resolveOpenAIResponseModelRestorePlan(c, fallbackFromModel, fallbackToModel)
-	if ok && observedModel != "" && strings.EqualFold(observedModel, fromModel) {
-		return toModel
-	}
-	if observedModel != "" {
+	if ok && observedModel != "" {
+		if !openAIResponseModelRestoreStrict(c) || strings.EqualFold(observedModel, fromModel) {
+			return toModel
+		}
 		return observedModel
 	}
 	if ok {

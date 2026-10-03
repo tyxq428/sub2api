@@ -2024,7 +2024,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
 			observer.ObserveOpenAI(dataBytes, rawEventType)
 			if needModelReplace && strings.Contains(data, "model") {
-				line = s.replaceModelInSSELine(line, responseModelFrom, responseModelTo)
+				line = s.replaceModelInSSELineForRestore(c, line, responseModelFrom, responseModelTo)
 				if replacedData, replaced := extractOpenAISSEDataLine(line); replaced {
 					dataBytes = []byte(replacedData)
 					trimmedData = strings.TrimSpace(replacedData)
@@ -2347,7 +2347,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 		contentType = "application/json"
 	}
 	if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, mappedModel, originalModel); ok {
-		body = s.replaceModelInResponseBody(body, responseModelFrom, responseModelTo)
+		body = s.replaceModelInResponseBodyForRestore(c, body, responseModelFrom, responseModelTo)
 	}
 	body, err = restoreOpenAIResponsesNamespacePayload(c, body)
 	if err != nil {
@@ -2409,7 +2409,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
 		if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, mappedModel, originalModel); ok {
-			body = s.replaceModelInResponseBody(body, responseModelFrom, responseModelTo)
+			body = s.replaceModelInResponseBodyForRestore(c, body, responseModelFrom, responseModelTo)
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
@@ -2421,7 +2421,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		body = restoredBody
 	} else {
 		if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, mappedModel, originalModel); ok {
-			bodyText = s.replaceModelInSSEBody(bodyText, responseModelFrom, responseModelTo)
+			bodyText = s.replaceModelInSSEBodyForRestore(c, bodyText, responseModelFrom, responseModelTo)
 		}
 		body = []byte(bodyText)
 	}

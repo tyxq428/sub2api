@@ -806,7 +806,7 @@ readLoop:
 		}
 
 		if needModelReplace {
-			finalResponse = s.replaceModelInResponseBody(finalResponse, responseModelFrom, responseModelTo)
+			finalResponse = s.replaceModelInResponseBodyForRestore(c, finalResponse, responseModelFrom, responseModelTo)
 		}
 		finalResponse = s.correctToolCallsInResponseBody(finalResponse)
 		populateOpenAIUsageFromResponseJSON(finalResponse, usage)

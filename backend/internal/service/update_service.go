@@ -30,7 +30,12 @@ var (
 const (
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	// This fork carries operator-required custom behavior (including group-level
+	// model mapping), so self-update must never fall back to upstream release
+	// binaries. Future updates are published from the controlled custom fork.
+	defaultUpdateRepo      = "tyxq428/sub2api"
+	updateRepoEnv          = "SUB2API_UPDATE_REPO"
+	customReleaseTagMarker = "-custom."
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -65,15 +70,21 @@ type UpdateService struct {
 	githubClient   GitHubReleaseClient
 	currentVersion string
 	buildType      string // "source" for manual builds, "release" for CI builds
+	releaseRepo    string
 }
 
 // NewUpdateService creates a new UpdateService
 func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, version, buildType string) *UpdateService {
+	releaseRepo := strings.TrimSpace(os.Getenv(updateRepoEnv))
+	if releaseRepo == "" {
+		releaseRepo = defaultUpdateRepo
+	}
 	return &UpdateService{
 		cache:          cache,
 		githubClient:   githubClient,
 		currentVersion: version,
 		buildType:      buildType,
+		releaseRepo:    releaseRepo,
 	}
 }
 
@@ -363,7 +374,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 // fetchRollbackCandidates fetches recent releases and keeps the newest
 // maxRollbackVersions entries strictly older than the current version.
 func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubRelease, error) {
-	releases, err := s.githubClient.FetchRecentReleases(ctx, githubRepo, rollbackFetchPageSize)
+	releases, err := s.githubClient.FetchRecentReleases(ctx, s.releaseRepo, rollbackFetchPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -400,9 +411,12 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 }
 
 func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
-	release, err := s.githubClient.FetchLatestRelease(ctx, githubRepo)
+	release, err := s.githubClient.FetchLatestRelease(ctx, s.releaseRepo)
 	if err != nil {
 		return nil, err
+	}
+	if release == nil || !isTrustedCustomReleaseTag(release.TagName) {
+		return nil, fmt.Errorf("latest release from %s is not a trusted custom build", s.releaseRepo)
 	}
 
 	latestVersion := strings.TrimPrefix(release.TagName, "v")
@@ -650,7 +664,47 @@ func compareVersions(current, latest string) int {
 			return 1
 		}
 	}
+	// Custom releases can be rebuilt for the same upstream semver. Treat the
+	// numeric custom revision as a fourth component so e.g.
+	// 0.2.13-custom.2 is newer than 0.2.13-custom.1. An official/base build has
+	// revision 0, which lets the first custom build replace an already-installed
+	// official binary at the same upstream version.
+	currentRevision, _ := customReleaseRevision(current)
+	latestRevision, _ := customReleaseRevision(latest)
+	if currentRevision < latestRevision {
+		return -1
+	}
+	if currentRevision > latestRevision {
+		return 1
+	}
 	return 0
+}
+
+func isTrustedCustomReleaseTag(tag string) bool {
+	_, ok := customReleaseRevision(tag)
+	return ok
+}
+
+func customReleaseRevision(version string) (int, bool) {
+	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
+	parts := strings.SplitN(version, customReleaseTagMarker, 2)
+	if len(parts) != 2 {
+		return 0, false
+	}
+	base := strings.Split(parts[0], ".")
+	if len(base) != 3 {
+		return 0, false
+	}
+	for _, component := range base {
+		if _, err := strconv.Atoi(component); err != nil {
+			return 0, false
+		}
+	}
+	revision, err := strconv.Atoi(parts[1])
+	if err != nil || revision <= 0 {
+		return 0, false
+	}
+	return revision, true
 }
 
 func parseVersion(v string) [3]int {

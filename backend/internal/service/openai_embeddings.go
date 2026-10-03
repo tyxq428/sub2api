@@ -35,6 +35,8 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 	SetOpsUpstreamModel(c, upstreamModel)
+	resetOpenAIResponseModelRestorePlan(c)
+	stageOpenAIResponseModelRestorePlan(c, originalModel, upstreamModel)
 	upstreamBody := body
 	if upstreamModel != originalModel {
 		upstreamBody = ReplaceModelInBody(body, upstreamModel)
@@ -161,13 +163,17 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
 
-	writeOpenAIEmbeddingsUpstreamResponse(c, resp, respBody, s.responseHeaderFilter)
+	clientBody := respBody
+	if responseModelFrom, responseModelTo, ok := resolveOpenAIResponseModelRestorePlan(c, upstreamModel, originalModel); ok {
+		clientBody = s.replaceModelInResponseBodyForRestore(c, clientBody, responseModelFrom, responseModelTo)
+	}
+	writeOpenAIEmbeddingsUpstreamResponse(c, resp, clientBody, s.responseHeaderFilter)
 
 	return &OpenAIForwardResult{
 		RequestID:       firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id")),
 		UpstreamHeaders: resp.Header,
 		Usage:           extractOpenAIEmbeddingsUsage(respBody),
-		Model:           originalModel,
+		Model:           openAIClientFacingResponseModel(c, originalModel),
 		BillingModel:    billingModel,
 		UpstreamModel:   upstreamModel,
 		Stream:          false,

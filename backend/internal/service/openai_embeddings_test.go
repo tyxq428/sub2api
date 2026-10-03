@@ -98,11 +98,55 @@ func TestForwardEmbeddings_APIKeyPassthroughRecordsUsageAndBatchInput(t *testing
 	require.Equal(t, "https://api.jina.ai/v1/embeddings", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer sk-test", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "jina-embeddings-v5-text-small", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "nowledge-embedding", gjson.Get(rec.Body.String(), "model").String())
 	require.Equal(t, int64(2), gjson.GetBytes(upstream.lastBody, "input.#").Int())
 	require.Equal(t, "hello", gjson.GetBytes(upstream.lastBody, "input.0").String())
 	require.Equal(t, "world", gjson.GetBytes(upstream.lastBody, "input.1").String())
 	require.Equal(t, "float", gjson.GetBytes(upstream.lastBody, "encoding_format").String())
 	require.Equal(t, int64(256), gjson.GetBytes(upstream.lastBody, "dimensions").Int())
+}
+
+func TestForwardEmbeddings_ManualGroupAliasRestoresClientModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	reqBody := []byte(`{"model":"internal-embed","input":"hello"}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewReader(reqBody))
+	req = req.WithContext(WithOpenAIManualResponseModelAlias(req.Context(), "public-embed", "internal-embed"))
+	c.Request = req
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{
+			"object":"list",
+			"data":[{"object":"embedding","index":0,"embedding":[0.1]}],
+			"model":"provider-embed",
+			"usage":{"prompt_tokens":3,"total_tokens":3}
+		}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID:       45,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "sk-test",
+			"model_mapping": map[string]any{
+				"internal-embed": "provider-embed",
+			},
+		},
+	}
+
+	result, err := svc.ForwardEmbeddings(context.Background(), c, account, reqBody, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "provider-embed", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "public-embed", gjson.Get(rec.Body.String(), "model").String())
+	require.Equal(t, "public-embed", result.Model)
+	require.Equal(t, "provider-embed", result.UpstreamModel)
 }
 
 func TestForwardEmbeddings_AccessStateUsesTypedFailover(t *testing.T) {

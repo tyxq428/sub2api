@@ -843,7 +843,8 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		flusher.Flush()
 	}
 
-	needModelReplace := originalModel != mappedModel
+	clientModel := gatewayClientFacingModel(c, originalModel)
+	needModelReplace := clientModel != mappedModel
 	clientDisconnected := false // 客户端断开标志，断开后继续读取上游以获取完整usage
 	sawTerminalEvent := false
 	useNoopDeltaKeepalive := c != nil && c.Request != nil && shouldUseClaudeCodeNoopDeltaKeepalive(c.GetHeader("User-Agent"))
@@ -975,7 +976,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		if needModelReplace {
 			if msg, ok := event["message"].(map[string]any); ok {
 				if model, ok := msg["model"].(string); ok && model == mappedModel {
-					msg["model"] = originalModel
+					msg["model"] = clientModel
 					eventChanged = true
 				}
 			}
@@ -1446,9 +1447,11 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 		}
 	}
 
-	// 如果有模型映射，替换响应中的model字段
-	if originalModel != mappedModel {
-		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+	// 如果有模型映射，替换响应中的model字段。group-level alias 在 handler
+	// 进入 service 前已经路由，因此这里恢复为客户端最初请求的公开模型名。
+	clientModel := gatewayClientFacingModel(c, originalModel)
+	if clientModel != mappedModel {
+		body = s.replaceModelInResponseBody(body, mappedModel, clientModel)
 	}
 
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)

@@ -795,6 +795,63 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StripsDeferredToolCacheContro
 	require.True(t, gjson.GetBytes(countBody, "tools.3.cache_control").Exists())
 }
 
+func TestGatewayService_GroupAliasRestoresNativeAnthropicResponseModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, passthrough := range []bool{false, true} {
+		name := "generic"
+		if passthrough {
+			name = "passthrough"
+		}
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			SetGatewayManualResponseModelAlias(c, "public-claude", "internal-claude")
+
+			body := []byte(`{"model":"internal-claude","messages":[{"role":"user","content":"hello"}],"max_tokens":8}`)
+			parsed := &ParsedRequest{Model: "internal-claude", Body: NewRequestBodyRef(body)}
+			upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"id":"msg_alias","type":"message","role":"assistant","model":"provider-claude","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":2,"output_tokens":1}}`,
+				)),
+			}}
+			cfg := &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}
+			svc := &GatewayService{
+				cfg:                  cfg,
+				responseHeaderFilter: compileResponseHeaderFilter(cfg),
+				httpUpstream:         upstream,
+				rateLimitService:     &RateLimitService{},
+				deferredService:      &DeferredService{},
+			}
+			account := &Account{
+				ID: 103, Name: "anthropic-group-alias", Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key": "upstream-anthropic-key",
+					"model_mapping": map[string]any{
+						"internal-claude": "provider-claude",
+					},
+				},
+				Status: StatusActive, Schedulable: true,
+			}
+			if passthrough {
+				account.Extra = map[string]any{"anthropic_passthrough": true}
+			}
+
+			result, err := svc.Forward(context.Background(), c, account, parsed)
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, "provider-claude", gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, "public-claude", gjson.Get(rec.Body.String(), "model").String())
+			require.Equal(t, "public-claude", result.Model)
+			require.Equal(t, "provider-claude", result.UpstreamModel)
+		})
+	}
+}
+
 func TestGatewayService_AnthropicOAuth_NotAffectedByAPIKeyPassthroughToggle(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

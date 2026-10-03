@@ -26,12 +26,19 @@ import (
 )
 
 type anthropicPassthroughForwardInput struct {
-	Body          []byte
-	Parsed        *ParsedRequest
-	RequestModel  string
-	OriginalModel string
-	RequestStream bool
-	StartTime     time.Time
+	Body              []byte
+	Parsed            *ParsedRequest
+	RequestModel      string
+	OriginalModel     string
+	RestoreModelAlias bool
+	RequestStream     bool
+	StartTime         time.Time
+}
+
+type anthropicPassthroughResponseModelRestore struct {
+	fromModel string
+	toModel   string
+	enabled   bool
 }
 
 func (s *GatewayService) forwardAnthropicAPIKeyPassthrough(
@@ -254,7 +261,14 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	var firstTokenMs *int
 	var clientDisconnect bool
 	if input.RequestStream {
-		streamResult, err := s.handleStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account, input.StartTime, input.RequestModel)
+		streamResult, err := s.handleStreamingResponseAnthropicAPIKeyPassthrough(
+			ctx, resp, c, account, input.StartTime, input.RequestModel,
+			anthropicPassthroughResponseModelRestore{
+				fromModel: input.RequestModel,
+				toModel:   input.OriginalModel,
+				enabled:   input.RestoreModelAlias,
+			},
+		)
 		if err != nil {
 			// 流中断时保留已观测到的 usage 与错误一起返回，避免上游已计量的请求
 			// 完全漏记漏计费（issue #5148）。
@@ -267,7 +281,14 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		firstTokenMs = streamResult.firstTokenMs
 		clientDisconnect = streamResult.clientDisconnect
 	} else {
-		usage, err = s.handleNonStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account)
+		usage, err = s.handleNonStreamingResponseAnthropicAPIKeyPassthrough(
+			ctx, resp, c, account,
+			anthropicPassthroughResponseModelRestore{
+				fromModel: input.RequestModel,
+				toModel:   input.OriginalModel,
+				enabled:   input.RestoreModelAlias,
+			},
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -377,7 +398,12 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	account *Account,
 	startTime time.Time,
 	model string,
+	restore ...anthropicPassthroughResponseModelRestore,
 ) (*streamingResult, error) {
+	var restorePlan anthropicPassthroughResponseModelRestore
+	if len(restore) > 0 {
+		restorePlan = restore[0]
+	}
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -544,6 +570,9 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 					firstTokenMs = &ms
 				}
 				parseSSEUsagePassthrough(data, usage)
+				if restorePlan.enabled {
+					line = restoreAnthropicPassthroughSSEModel(line, restorePlan.fromModel, restorePlan.toModel)
+				}
 			} else {
 				trimmed := strings.TrimSpace(line)
 				if strings.HasPrefix(trimmed, "event:") && anthropicStreamEventIsTerminal(strings.TrimSpace(strings.TrimPrefix(trimmed, "event:")), "") {
@@ -620,6 +649,31 @@ func extractAnthropicSSEDataLine(line string) (string, bool) {
 		start++
 	}
 	return line[start:], true
+}
+
+func restoreAnthropicPassthroughSSEModel(line, fromModel, toModel string) string {
+	data, ok := extractAnthropicSSEDataLine(line)
+	if !ok {
+		return line
+	}
+	trimmed := strings.TrimSpace(data)
+	if trimmed == "" || trimmed == "[DONE]" || !gjson.Valid(trimmed) {
+		return line
+	}
+	model := gjson.Get(trimmed, "message.model")
+	if model.Type != gjson.String ||
+		!strings.EqualFold(strings.TrimSpace(model.String()), strings.TrimSpace(fromModel)) {
+		return line
+	}
+	updated, err := sjson.Set(trimmed, "message.model", toModel)
+	if err != nil {
+		return line
+	}
+	idx := strings.Index(line, data)
+	if idx < 0 {
+		return line
+	}
+	return line[:idx] + updated
 }
 
 // parseSSEUsagePassthrough 从 Anthropic SSE data 行提取 usage（包级函数：
@@ -850,7 +904,12 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	resp *http.Response,
 	c *gin.Context,
 	account *Account,
+	restore ...anthropicPassthroughResponseModelRestore,
 ) (*ClaudeUsage, error) {
+	var restorePlan anthropicPassthroughResponseModelRestore
+	if len(restore) > 0 {
+		restorePlan = restore[0]
+	}
 	if s.rateLimitService != nil {
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 	}
@@ -878,6 +937,9 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 		if err != nil {
 			return nil, err
 		}
+	}
+	if restorePlan.enabled {
+		body = s.replaceModelInResponseBody(body, restorePlan.fromModel, restorePlan.toModel)
 	}
 
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)

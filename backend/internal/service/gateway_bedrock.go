@@ -164,7 +164,7 @@ func (s *GatewayService) forwardBedrock(
 		RequestID:        resp.Header.Get("x-amzn-requestid"),
 		UpstreamHeaders:  resp.Header,
 		Usage:            *usage,
-		Model:            reqModel,
+		Model:            gatewayClientFacingModel(c, reqModel),
 		UpstreamModel:    mappedModel,
 		Stream:           reqStream,
 		Duration:         time.Since(startTime),

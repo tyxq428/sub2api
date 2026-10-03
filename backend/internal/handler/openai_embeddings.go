@@ -86,6 +86,15 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 
 	channelMapping, _ := h.gatewayService.ResolveGroupAndChannelMapping(c.Request.Context(), apiKey.Group, apiKey.GroupID, reqModel)
 	forwardModel := openAIChannelForwardModel(channelMapping, reqModel)
+	if channelMapping.Mapped &&
+		strings.TrimSpace(channelMapping.MappedModel) != "" &&
+		strings.TrimSpace(channelMapping.MappedModel) != strings.TrimSpace(reqModel) {
+		c.Request = c.Request.WithContext(service.WithOpenAIManualResponseModelAlias(
+			c.Request.Context(),
+			reqModel,
+			channelMapping.MappedModel,
+		))
+	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())

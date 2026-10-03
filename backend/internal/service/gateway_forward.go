@@ -33,6 +33,56 @@ const (
 	maxRetryElapsed = 10 * time.Second
 )
 
+const gatewayManualResponseModelAliasKey = "gateway_manual_response_model_alias"
+
+type gatewayManualResponseModelAlias struct {
+	requestedModel string
+	routedModel    string
+}
+
+// SetGatewayManualResponseModelAlias records a group-level model alias for the
+// current native gateway attempt. Passing an empty/equal routed model clears a
+// stale alias left by a previous fallback-group attempt on the same gin context.
+func SetGatewayManualResponseModelAlias(c *gin.Context, requestedModel, routedModel string) {
+	if c == nil {
+		return
+	}
+	requestedModel = strings.TrimSpace(requestedModel)
+	routedModel = strings.TrimSpace(routedModel)
+	if requestedModel == "" || routedModel == "" || strings.EqualFold(requestedModel, routedModel) {
+		c.Set(gatewayManualResponseModelAliasKey, gatewayManualResponseModelAlias{})
+		return
+	}
+	c.Set(gatewayManualResponseModelAliasKey, gatewayManualResponseModelAlias{
+		requestedModel: requestedModel,
+		routedModel:    routedModel,
+	})
+}
+
+func gatewayManualResponseModelAliasFor(c *gin.Context, routedModel string) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+	raw, exists := c.Get(gatewayManualResponseModelAliasKey)
+	if !exists {
+		return "", false
+	}
+	alias, ok := raw.(gatewayManualResponseModelAlias)
+	if !ok ||
+		strings.TrimSpace(alias.requestedModel) == "" ||
+		!strings.EqualFold(strings.TrimSpace(alias.routedModel), strings.TrimSpace(routedModel)) {
+		return "", false
+	}
+	return strings.TrimSpace(alias.requestedModel), true
+}
+
+func gatewayClientFacingModel(c *gin.Context, routedModel string) string {
+	if requestedModel, ok := gatewayManualResponseModelAliasFor(c, routedModel); ok {
+		return requestedModel
+	}
+	return strings.TrimSpace(routedModel)
+}
+
 func (s *GatewayService) shouldRetryUpstreamError(account *Account, statusCode int) bool {
 	// OAuth/Setup Token 账号：仅 403 重试
 	if account.IsOAuth() {
@@ -130,6 +180,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
 		passthroughBody := parsed.Body.Bytes()
 		passthroughModel := parsed.Model
+		clientModel := gatewayClientFacingModel(c, parsed.Model)
+		restoreManualAlias := !strings.EqualFold(strings.TrimSpace(clientModel), strings.TrimSpace(parsed.Model))
 		if passthroughModel != "" {
 			if mappedModel := account.GetMappedModel(passthroughModel); mappedModel != passthroughModel {
 				passthroughBody = s.replaceModelInBody(passthroughBody, mappedModel)
@@ -138,12 +190,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			}
 		}
 		return s.forwardAnthropicAPIKeyPassthroughWithInput(ctx, c, account, anthropicPassthroughForwardInput{
-			Body:          passthroughBody,
-			Parsed:        parsed,
-			RequestModel:  passthroughModel,
-			OriginalModel: parsed.Model,
-			RequestStream: parsed.Stream,
-			StartTime:     startTime,
+			Body:              passthroughBody,
+			Parsed:            parsed,
+			RequestModel:      passthroughModel,
+			OriginalModel:     clientModel,
+			RestoreModelAlias: restoreManualAlias,
+			RequestStream:     parsed.Stream,
+			StartTime:         startTime,
 		})
 	}
 
@@ -875,7 +928,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			}
 			// 流中断（缺失 terminal 事件、读错误、数据间隔超时等）时保留已观测到的
 			// usage 与错误一起返回，handler 在错误处理完成后照常提交 usage 记录。
-			if partial := partialStreamUsageResult(c, resp, streamResult, originalModel, mappedModel, startTime, err); partial != nil {
+			if partial := partialStreamUsageResult(c, resp, streamResult, gatewayClientFacingModel(c, originalModel), mappedModel, startTime, err); partial != nil {
 				return partial, err
 			}
 			return nil, err
@@ -894,7 +947,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
 		Usage:                         *usage,
-		Model:                         originalModel, // 使用原始模型用于计费和日志
+		Model:                         gatewayClientFacingModel(c, originalModel),
 		UpstreamModel:                 mappedModel,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),

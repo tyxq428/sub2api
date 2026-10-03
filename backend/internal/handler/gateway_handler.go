@@ -678,6 +678,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		if currentChannelMapping.Mapped {
 			currentRoutingModel = currentChannelMapping.MappedModel
 		}
+		service.SetGatewayManualResponseModelAlias(c, reqModel, currentRoutingModel)
 
 		for {
 			attemptParsedReq, err := parsedReq.CloneForBody(body)

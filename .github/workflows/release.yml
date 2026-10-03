@@ -377,7 +377,9 @@ jobs:
 
   sync-version-file:
     needs: [prepare, release]
-    if: ${{ needs.release.result == 'success' && needs.prepare.outputs.dry_run != 'true' }}
+    # Custom operator releases live on their dedicated source branch. Do not
+    # write only the custom VERSION string back to the fork's default branch.
+    if: ${{ needs.release.result == 'success' && needs.prepare.outputs.dry_run != 'true' && !contains(needs.prepare.outputs.version, '-custom.') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

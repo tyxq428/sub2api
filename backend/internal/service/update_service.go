@@ -25,6 +25,7 @@ import (
 var (
 	ErrNoUpdateAvailable         = infraerrors.Conflict("ALREADY_UP_TO_DATE", "no update available; current version is latest")
 	ErrRollbackVersionNotAllowed = infraerrors.BadRequest("ROLLBACK_VERSION_NOT_ALLOWED", "version is not in the allowed rollback list")
+	ErrLocalRollbackNotAllowed   = infraerrors.BadRequest("LOCAL_ROLLBACK_NOT_ALLOWED", "local backup rollback is disabled for custom builds; select an allowed custom release version")
 )
 
 const (
@@ -290,8 +291,15 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 	return nil
 }
 
-// Rollback restores the previous version
+// Rollback restores the previous local backup for ordinary upstream builds.
+// Custom builds must never use the unversioned local backup path because the
+// backup may predate the operator-required custom behavior. They must roll
+// back through RollbackToVersion, which is constrained to trusted custom tags.
 func (s *UpdateService) Rollback() error {
+	if isTrustedCustomReleaseTag(s.currentVersion) {
+		return ErrLocalRollbackNotAllowed
+	}
+
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)

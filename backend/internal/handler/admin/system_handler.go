@@ -142,9 +142,10 @@ func (h *SystemHandler) GetRollbackVersions(c *gin.Context) {
 }
 
 // Rollback restores a previous version.
-// Without a body (or with an empty version) it restores the local .backup binary
-// left by the last in-place update. With {"version": "x.y.z"} it downloads and
-// installs that specific release (must be one of the recent rollback versions).
+// Without a body (or with an empty version) it requests the local .backup path;
+// custom builds reject that path so they cannot escape the controlled custom
+// release channel. With {"version": "x.y.z"} it downloads and installs that
+// specific release (must be one of the recent rollback versions).
 // POST /api/v1/admin/system/rollback
 func (h *SystemHandler) Rollback(c *gin.Context) {
 	var req struct {

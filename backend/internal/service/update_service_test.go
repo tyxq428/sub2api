@@ -192,6 +192,25 @@ func TestUpdateServiceCustomBuildRollbackRejectsOfficialTags(t *testing.T) {
 	require.ErrorIs(t, err, ErrRollbackVersionNotAllowed)
 }
 
+func TestUpdateServiceCustomBuildRejectsLocalBackupRollback(t *testing.T) {
+	svc := newRollbackTestService("0.2.13-custom.2", nil)
+
+	err := svc.Rollback()
+
+	require.ErrorIs(t, err, ErrLocalRollbackNotAllowed)
+	require.Contains(t, err.Error(), "select an allowed custom release version")
+}
+
+func TestUpdateServiceOfficialBuildRetainsLocalBackupRollbackPath(t *testing.T) {
+	svc := newRollbackTestService("0.2.13", nil)
+
+	err := svc.Rollback()
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrLocalRollbackNotAllowed)
+	require.Contains(t, err.Error(), "no backup found")
+}
+
 func TestUpdateServiceListRollbackVersionsPropagatesFetchError(t *testing.T) {
 	svc := NewUpdateService(
 		&updateServiceCacheStub{},
